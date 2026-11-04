@@ -474,6 +474,7 @@ tr.absent-row > th { opacity: 1; }
   .cal-grid { gap: 3px; }
   .cal-cell { min-height: 58px; padding: 4px; }
   .cal-ev, .cal-sess { display: none; }
+  .cal-cell:has(.cal-ev.holiday) { box-shadow: inset 0 -4px 0 var(--good); }
   .cal-wd { font-size: 11px; }
   .ink-group { padding-right: 6px; }
   .ink-btn span { display: none; }
@@ -494,3 +495,16 @@ tr.absent-row > th { opacity: 1; }
 /* calendar editor */
 #calErr { color: #e07b5b; }
 .row .push { margin-left: auto; }
+
+/* holidays */
+.hol-list { display: grid; gap: 8px; margin-bottom: 8px; }
+.hol-card { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; border: 1px solid var(--line); background: var(--surface-2); border-radius: 10px; padding: 10px 12px; min-width: 0; }
+.hol-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.hol-snip { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--muted); }
+.hol-btns { display: flex; gap: 6px; flex-shrink: 0; }
+.hol-banner { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.hol-chip { font: inherit; font-size: 14px; border: 1px solid var(--line); background: var(--good-soft); color: var(--good); border-radius: 999px; padding: 6px 14px; cursor: pointer; min-height: 36px; }
+.hol-chip:hover { border-color: var(--good); }
+.hol-desc p { margin: 0 0 8px; white-space: pre-wrap; }
+button.tn-ev { display: block; text-align: left; padding: 0; }
+@media (max-width: 560px) { .hol-card { flex-direction: column; } }

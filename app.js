@@ -417,9 +417,9 @@ function render() {
   applyCalendar();
   renderHeader();
   const v = $('#view');
-  if (state.view === 'session') v.innerHTML = viewSession();
+  if (state.view === 'session') v.innerHTML = holidayBanner() + viewSession();
   if (state.view === 'party') v.innerHTML = viewParty();
-  if (state.view === 'calendar') v.innerHTML = viewCalendar();
+  if (state.view === 'calendar') v.innerHTML = holidayBanner() + viewCalendar();
   if (state.view === 'history') v.innerHTML = viewHistory();
   if (state.view === 'world') v.innerHTML = viewWorld();
   afterRender();
@@ -890,7 +890,7 @@ function viewCalendar() {
       const ph = C.moonPhase(mo, ep).name, prev = C.moonPhase(mo, ep - 1).name;
       return (ph === 'Full' || ph === 'New') && ph !== prev ? `<span class="cal-moon" title="${esc(mo.name)} ${ph}">${moonSVG(mo, ep, 14)}</span>` : '';
     }).join('');
-    const evs = C.eventsOn(month, d);
+    const evs = C.eventsOn(month, d, year);
     const ss = sessByEpoch[ep] || [];
     const sel = state.calDay === d;
     cells.push(`<button class="cal-cell${isToday ? ' today' : ''}${sel ? ' sel' : ''}" data-act="cal-day" data-day="${d}" aria-label="${d} ${esc(m.name)}${isToday ? ', current in-game day' : ''}">
@@ -904,14 +904,14 @@ function viewCalendar() {
   if (state.calDay) {
     const d = state.calDay, ep = first + d - 1;
     const t = ep * C.DAY + cur.hour * 60 + cur.minute;
-    const evs = C.eventsOn(month, d);
+    const evs = C.eventsOn(month, d, year);
     const ss = sessByEpoch[ep] || [];
     detail = `<section class="card day-detail">
       <h2>${esc(C.fmtDate(t))}</h2>
       <p class="muted">${C.seasonOf(month, d)}</p>
       <ul class="moon-list">${C.CAL.moons.map(mo => { const ph = C.moonPhase(mo, ep); return `<li>${moonSVG(mo, ep, 22)} <b>${esc(mo.name)}</b> ${ph.name} <span class="muted">(day ${ph.day} of ${mo.cycle})</span></li>`; }).join('')}</ul>
       ${wxByEpoch[ep] && ep <= cur.epoch ? `<p class="wx-inline">${W.iconSVG(W.weatherIcon(wxByEpoch[ep]), 22)} ${esc(locById(wxByEpoch[ep].locationId)?.name || '')}: ${esc(W.describe(wxByEpoch[ep]))}, ${W.fmtF(wxByEpoch[ep].low)} to ${W.fmtF(wxByEpoch[ep].high)}</p>` : ''}
-      ${evs.map(e => `<div class="ev-detail"><b>${esc(e.label)}</b>${e.description ? `<p class="small">${esc(e.description)}</p>` : ''}</div>`).join('')}
+      ${evs.map(e => `<div class="ev-detail"><b>${esc(e.label)}</b>${e.who ? ` <span class="muted small">· ${esc(e.who)}</span>` : ''}${e.description ? `<p class="small">${esc(e.description)}</p>` : ''}${e.kind !== 'astro' ? `<button type="button" class="link-btn small" data-hol="${esc(e.name)}">Read about it</button>` : ''}</div>`).join('')}
       ${ss.map(s => `<button class="link-btn" data-act="goto-session" data-id="${s.id}">Session ${s.number} started this day</button>`).join(' ')}
       ${ep !== cur.epoch ? `<div class="row left"><button class="btn" data-act="cal-set" data-epoch="${ep}">Make this the current in-game day</button></div>` : '<p class="small"><b>This is the current in-game day.</b></p>'}
     </section>`;
@@ -1053,7 +1053,7 @@ function timeNowHTML() {
   const t = now(), d = C.fromMinutes(t);
   return `<div class="tn-date">${esc(C.fmtDate(t))}</div><div class="tn-time">${esc(C.fmtTime(t))} · ${C.seasonOf(d.month, d.day)}</div>
     <div class="tn-moons">${C.CAL.moons.map(m => `<span>${moonSVG(m, d.epoch, 22)} ${esc(m.name)}: ${C.moonPhase(m, d.epoch).name}</span>`).join('')}</div>
-    ${C.eventsOn(d.month, d.day).map(e => `<div class="tn-ev">${esc(e.label)}</div>`).join('')}
+    ${C.eventsOn(d.month, d.day, d.year).map(e => e.kind === 'astro' ? `<div class="tn-ev">${esc(e.label)}</div>` : `<button type="button" class="tn-ev link-btn" data-hol="${esc(e.name)}">${esc(e.label)}</button>`).join('')}
     ${hereLoc() ? (() => { const dl = W.daylight(hereLoc(), d.epoch); return `<div class="tn-sun">In ${esc(hereLoc().name)}: ${dl.twilight ? 'perpetual twilight' : `sunrise ${W.fmtClock(dl.rise)}, sunset ${W.fmtClock(dl.set)}`}</div>`; })() : ''}`;
 }
 
@@ -1872,7 +1872,8 @@ function openCalendar() {
   f.months.value = cal.months.map(m => `${m.name}, ${m.length}`).join('\n');
   f.weekdays.value = cal.weekdays.join(', ');
   f.moons.value = (cal.moons || []).map(m => [m.name, m.cycle, m.color].filter(x => x != null && x !== '').join(', ')).join('\n');
-  f.events.value = (cal.events || []).filter(e => e.kind !== 'astro').map(e => [e.name, e.month + 1, e.day, e.days > 1 ? e.days : ''].filter(x => x !== '').join(', ')).join('\n');
+  calHols = (cal.events || []).filter(e => e.kind !== 'astro').map(e => ({ ...e }));
+  renderHolList();
   const md = doy => { let m = 0; while (m < cal.months.length - 1 && doy >= C.monthOffset(m + 1)) m++; return `${m + 1} ${doy - C.monthOffset(m) + 1}`; };
   for (const k of ['spring', 'summer', 'autumn', 'winter']) f[k].value = md(cal.seasons[k]);
   $('#calErr').hidden = true;
@@ -1886,7 +1887,7 @@ function readCalendar() {
   const weekdays = f.weekdays.value.split(',').map(x => x.trim()).filter(Boolean);
   if (!weekdays.length) err.push('Add at least one weekday.');
   const moons = lines(f.moons.value).map(l => { const p = l.split(',').map(x => x.trim()); const cyc = Number(p[1]); if (!p[0] || !(cyc > 0)) { err.push(`Moon "${l}" needs a name and days per cycle.`); return null; } return { name: p[0], cycle: cyc, shift: 0, color: p[2] || '#f4f1e8' }; }).filter(Boolean);
-  const events = lines(f.events.value).map(l => { const p = l.split(',').map(x => x.trim()); const mo = Number(p[1]) - 1, d = Number(p[2]); if (!p[0] || !(mo >= 0 && mo < months.length) || !(d >= 1)) { err.push(`Holiday "${l}" needs a name, a month number and a day.`); return null; } const old = (C.CAL.events || []).find(e => e.name === p[0]); return { name: p[0], month: mo, day: d, ...(Number(p[3]) > 1 ? { days: Number(p[3]) } : {}), kind: 'holiday', ...(old?.description ? { description: old.description } : {}) }; }).filter(Boolean);
+  const events = calHols.map(h => { const e = { ...h, kind: 'holiday' }; if (e.month >= months.length) { err.push(`${h.name} is in a month this calendar no longer has.`); return null; } e.day = Math.min(e.day, months[e.month].length); return e; }).filter(Boolean);
   const offs = []; let acc = 0; for (const m of months) { offs.push(acc); acc += m.length; }
   const seasons = {};
   for (const k of ['spring', 'summer', 'autumn', 'winter']) {
@@ -1899,6 +1900,94 @@ function readCalendar() {
   return { err, cal: { name: f.name.value.trim(), era: f.era.value.trim(), weekdays, months, moons, events: [...astro, ...events], seasons } };
 }
 $('#calendarBtn').addEventListener('click', openCalendar);
+
+// ---------- holidays: edited as cards in the calendar editor, each in its own small form
+let calHols = [], holEditing = -1;
+// The month names the calendar editor has right now (the DM may be changing them)
+function editorMonths() {
+  const names = $('#calForm').months.value.split('\n').map(l => l.trim()).filter(Boolean).map(l => (/^(.*?)[,\s]+(\d+)$/.exec(l) || [, l])[1].trim());
+  return names.length ? names : C.CAL.months.map(m => m.name);
+}
+function holWhen(h, months = editorMonths()) {
+  const n = Math.max(1, Number(h.every) || 1), len = Math.max(1, Number(h.days) || 1);
+  return [`${months[h.month] || `Month ${h.month + 1}`} ${h.day}`, len > 1 ? `${len} days` : '', n > 1 ? `every ${n} years` : 'every year'].filter(Boolean).join(' · ');
+}
+function renderHolList() {
+  const months = editorMonths();
+  const order = calHols.map((h, i) => [h, i]).sort((a, b) => a[0].month - b[0].month || a[0].day - b[0].day);
+  $('#holList').innerHTML = order.map(([h, i]) => `<div class="hol-card">
+      <div class="hol-main"><b>${esc(h.name)}</b><span class="muted small">${esc(holWhen(h, months))}</span>
+        ${h.who ? `<span class="small">Celebrated by ${esc(h.who)}</span>` : ''}
+        ${h.description ? `<span class="small hol-snip">${esc(h.description)}</span>` : '<span class="small muted">No description yet</span>'}</div>
+      <div class="hol-btns"><button type="button" class="btn small" data-hol-edit="${i}">Edit</button><button type="button" class="btn small" data-hol-del="${i}">Remove</button></div>
+    </div>`).join('') || '<p class="muted small">No holidays yet.</p>';
+}
+function openHoliday(i) {
+  holEditing = i;
+  const f = $('#holForm'), h = i >= 0 ? calHols[i] : { name: '', month: 0, day: 1, days: 1, every: 1 };
+  f.month.innerHTML = editorMonths().map((m, k) => `<option value="${k}">${esc(m)}</option>`).join('');
+  f.name.value = h.name; f.month.value = String(Math.min(h.month, f.month.options.length - 1)); f.day.value = h.day; f.days.value = h.days || 1;
+  const n = Math.max(1, Number(h.every) || 1);
+  f.often.value = n > 1 ? 'n' : '1'; f.every.value = n > 1 ? n : 2; f.start.value = h.start || C.fromMinutes(now()).year;
+  f.desc.value = h.description || ''; f.who.value = h.who || '';
+  $('#holTitle').textContent = i >= 0 ? 'Edit holiday' : 'New holiday';
+  $('#holErr').hidden = true; holOften();
+  $('#holDlg').showModal(); f.name.focus();
+}
+function holOften() { const n = $('#holForm').often.value === 'n'; $('#holEveryF').hidden = !n; $('#holStartF').hidden = !n; }
+$('#holForm').often.addEventListener('change', holOften);
+$('#holForm').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); $('#holOk').click(); } });
+$('#holAdd').addEventListener('click', () => openHoliday(-1));
+$('#holList').addEventListener('click', async e => {
+  const ed = e.target.closest('[data-hol-edit]'), del = e.target.closest('[data-hol-del]');
+  if (ed) openHoliday(+ed.dataset.holEdit);
+  if (del) { const h = calHols[+del.dataset.holDel]; if (await confirmBox(`Remove ${h.name}?`, 'It comes off the calendar when you save it.', 'Remove')) { calHols.splice(+del.dataset.holDel, 1); renderHolList(); } }
+});
+$('#holOk').addEventListener('click', () => {
+  const f = $('#holForm'), err = [];
+  const name = f.name.value.trim(), month = +f.month.value, months = $('#calForm').months.value;
+  const lens = months.split('\n').map(l => l.trim()).filter(Boolean).map(l => +((/(\d+)$/.exec(l) || [])[1] || 0));
+  const max = lens[month] || C.CAL.months[month]?.length || 31;
+  const day = Math.floor(+f.day.value), days = Math.max(1, Math.floor(+f.days.value || 1));
+  if (!name) err.push('Give it a name.');
+  if (!(day >= 1 && day <= max)) err.push(`The day needs to be between 1 and ${max}.`);
+  const every = f.often.value === 'n' ? Math.floor(+f.every.value) : 1;
+  if (f.often.value === 'n' && !(every >= 2)) err.push('Every how many years needs to be 2 or more.');
+  const start = Math.max(1, Math.floor(+f.start.value || 1));
+  if (calHols.some((h, k) => k !== holEditing && h.name.toLowerCase() === name.toLowerCase())) err.push(`There's already a holiday called ${name}.`);
+  if (err.length) { $('#holErr').textContent = err.join(' '); $('#holErr').hidden = false; return; }
+  const h = { ...(holEditing >= 0 ? calHols[holEditing] : {}), name, month, day, kind: 'holiday' };
+  if (days > 1) h.days = days; else delete h.days;
+  if (every > 1) { h.every = every; h.start = start; } else { delete h.every; delete h.start; }
+  const desc = f.desc.value.trim(), who = f.who.value.trim();
+  if (desc) h.description = desc; else delete h.description;
+  if (who) h.who = who; else delete h.who;
+  if (holEditing >= 0) calHols[holEditing] = h; else calHols.push(h);
+  $('#holDlg').close(); renderHolList();
+});
+// Month names changed in the editor: the cards follow
+$('#calForm').months.addEventListener('input', () => renderHolList());
+
+// Reading one: a holiday's name anywhere in the app opens its description
+function showHoliday(name) {
+  const e = C.CAL.events.find(x => x.name === name); if (!e) return;
+  $('#holViewName').textContent = e.name;
+  $('#holViewWhen').textContent = C.holidayWhen(e);
+  $('#holViewWho').textContent = e.who ? `Celebrated by ${e.who}` : '';
+  $('#holViewWho').hidden = !e.who;
+  $('#holViewDesc').innerHTML = e.description ? e.description.split(/\n+/).map(p => `<p>${esc(p)}</p>`).join('') : '<p class="muted">No description yet. Add one in Settings, Calendar.</p>';
+  $('#holView').showModal();
+}
+document.addEventListener('click', e => { const b = e.target.closest('[data-hol]'); if (b) { e.preventDefault(); e.stopPropagation(); showHoliday(b.dataset.hol); } }, true);
+// Today's holidays and the ones coming up, shown above the session and calendar
+function holidayBanner() {
+  const d = C.fromMinutes(now());
+  const today = C.eventsOn(d.month, d.day, d.year).filter(e => e.kind !== 'astro');
+  const soon = C.upcoming(d.epoch, 14);
+  if (!today.length && !soon.length) return '';
+  const chip = (e, text) => `<button type="button" class="hol-chip" data-hol="${esc(e.name)}">${text}</button>`;
+  return `<div class="hol-banner">${today.map(e => chip(e, `<b>Today:</b> ${esc(e.label)}`)).join('')}${soon.map(({ e, inDays }) => chip(e, `${esc(e.name)} ${inDays === 1 ? 'tomorrow' : `in ${inDays} days`}`)).join('')}</div>`;
+}
 $('#calSave').addEventListener('click', async () => {
   const { err, cal } = readCalendar();
   if (err.length) { $('#calErr').textContent = err.join(' '); $('#calErr').hidden = false; return; }

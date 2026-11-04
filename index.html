@@ -401,7 +401,10 @@
     <label class="field"><span>Months, one per line: name, days</span><textarea name="months" rows="7"></textarea></label>
     <label class="field"><span>Weekdays, in order, separated by commas</span><input name="weekdays" autocomplete="off"></label>
     <label class="field"><span>Moons, one per line: name, days per cycle, color (optional)</span><textarea name="moons" rows="2"></textarea></label>
-    <label class="field"><span>Holidays, one per line: name, month number, day, number of days (optional)</span><textarea name="events" rows="3"></textarea></label>
+    <div class="field"><span>Holidays</span>
+      <div id="holList" class="hol-list"></div>
+      <button type="button" class="btn small" id="holAdd">+ Add a holiday</button>
+    </div>
     <label class="field"><span>When each season starts: month number and day</span>
       <div class="field-row three" style="grid-template-columns:repeat(4,1fr)">
         <input name="spring" placeholder="Spring: 3 20" autocomplete="off"><input name="summer" placeholder="Summer: 6 21" autocomplete="off">
@@ -409,6 +412,35 @@
       </div></label>
     <p class="warn small" id="calErr" hidden></p>
     <div class="row"><button type="button" class="btn" id="calDefault">Use the default calendar</button><span class="push"></span><button value="cancel" class="btn">Cancel</button><button type="button" class="btn primary" id="calSave">Save</button></div>
+  </form>
+</dialog>
+<dialog id="holDlg" class="dlg-wrap">
+  <form class="dlg" method="dialog" id="holForm">
+    <h2 id="holTitle">Holiday</h2>
+    <label class="field"><span>Name</span><input name="name" autocomplete="off" required></label>
+    <div class="field-row three">
+      <label class="field"><span>Month</span><select name="month"></select></label>
+      <label class="field"><span>Day</span><input name="day" type="number" inputmode="numeric" min="1" value="1"></label>
+      <label class="field"><span>How many days</span><input name="days" type="number" inputmode="numeric" min="1" value="1"></label>
+    </div>
+    <div class="field-row three">
+      <label class="field"><span>How often</span><select name="often"><option value="1">Every year</option><option value="n">Every few years</option></select></label>
+      <label class="field" id="holEveryF"><span>Every how many years</span><input name="every" type="number" inputmode="numeric" min="2" value="2"></label>
+      <label class="field" id="holStartF"><span>A year it's held</span><input name="start" type="number" inputmode="numeric" min="1" value="1"></label>
+    </div>
+    <label class="field"><span>Description: what it is and how it's celebrated</span><textarea name="desc" rows="4"></textarea></label>
+    <label class="field"><span>Who celebrates it (optional)</span><input name="who" autocomplete="off" placeholder="Everyone, a faith, a town, a people..."></label>
+    <p class="warn small" id="holErr" hidden></p>
+    <div class="row"><span class="push"></span><button value="cancel" class="btn" formnovalidate>Cancel</button><button type="button" class="btn primary" id="holOk">Done</button></div>
+  </form>
+</dialog>
+<dialog id="holView" class="dlg-wrap">
+  <form class="dlg" method="dialog">
+    <h2 id="holViewName"></h2>
+    <p class="muted" id="holViewWhen"></p>
+    <p id="holViewWho" class="small"></p>
+    <div id="holViewDesc" class="hol-desc"></div>
+    <div class="row"><span class="push"></span><button value="close" class="btn primary">Close</button></div>
   </form>
 </dialog>
 <dialog id="settingsDlg" class="dlg-wrap">

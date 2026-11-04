@@ -2,7 +2,8 @@
 // uses the default. Time is stored everywhere as one number: minutes since midnight, day 1 of year 1.
 //
 // A calendar: { name, era, weekdays: [...], months: [{ name, length }], moons: [{ name, cycle, shift, color }],
-//   events: [{ name, month, day, days?, kind, description? }],
+//   events: [{ name, month, day, days?, kind, description?, who?, every?, start? }],
+//     (holidays: kind 'holiday'; every N years counting from year start; the seasons' own markers are kind 'astro')
 //   seasons?: { spring, summer, autumn, winter } (0-based day of year each starts; worked out from the year if missing) }
 
 // The default: a plain twelve-month year (365 days, no leap years), seven-day week and one moon. Any campaign can
@@ -98,9 +99,45 @@ export function seasonOf(month, day) {
   return 'Winter';
 }
 
-export function eventsOn(month, day) {
-  return CAL.events.filter(e => e.month === month && day >= e.day && day < e.day + (e.days || 1))
-    .map(e => (e.days > 1 ? { ...e, label: `${e.name} (day ${day - e.day + 1} of ${e.days})` } : { ...e, label: e.name }));
+// Does a holiday fall in this year? (every N years, counting from its first year)
+export function heldIn(e, year) {
+  const n = Math.max(1, Math.floor(Number(e.every) || 1));
+  if (n === 1 || year == null) return true;
+  return (((year - (Number(e.start) || 1)) % n) + n) % n === 0;
+}
+// The day of the year (0-based) a holiday starts on
+const startDoy = e => (offsets[e.month] ?? 0) + Math.min(e.day, CAL.months[e.month]?.length || e.day) - 1;
+/** The holidays on this day. A holiday of several days can run into the next month. Pass the year for "every N years". */
+export function eventsOn(month, day, year) {
+  const doy = (offsets[month] ?? 0) + day - 1;
+  return CAL.events.map(e => {
+    if (!CAL.months[e.month]) return null;
+    const len = Math.max(1, Number(e.days) || 1), s0 = startDoy(e);
+    let i = doy - s0, y = year;
+    if (i < 0 && s0 + len > YEAR_DAYS) { i += YEAR_DAYS; if (y != null) y--; } // runs over from last year
+    if (i < 0 || i >= len || !heldIn(e, y)) return null;
+    return len > 1 ? { ...e, label: `${e.name} (day ${i + 1} of ${len})` } : { ...e, label: e.name };
+  }).filter(Boolean);
+}
+/** Holidays starting within the next few days after this day: [{ e, inDays }], soonest first */
+export function upcoming(epoch, within = 14) {
+  const out = [], seen = new Set();
+  for (let k = 1; k <= within; k++) {
+    const d = fromMinutes((epoch + k) * DAY);
+    for (const e of CAL.events) {
+      if (e.kind === 'astro' || seen.has(e) || !CAL.months[e.month]) continue;
+      if (startDoy(e) === d.doy && heldIn(e, d.year)) { seen.add(e); out.push({ e, inDays: k }); }
+    }
+  }
+  return out;
+}
+/** When a holiday is, in words: "December 30, 4 days, every 2 years" */
+export function holidayWhen(e) {
+  const m = CAL.months[e.month]?.name || `Month ${e.month + 1}`, len = Math.max(1, Number(e.days) || 1), n = Math.max(1, Number(e.every) || 1);
+  let t = `${m} ${e.day}`;
+  if (len > 1) t += `, ${len} days`;
+  if (n > 1) t += `, every ${n} years${e.start ? ` (held in year ${e.start}, ${Number(e.start) + n}, ${Number(e.start) + 2 * n} and so on)` : ''}`;
+  return t;
 }
 
 export function ordinalDay(n) { return String(n); }
