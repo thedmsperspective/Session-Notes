@@ -1,5 +1,5 @@
 // Offline support. Bump VERSION whenever any app file changes.
-const VERSION = 'session-notes-v37';
+const VERSION = 'session-notes-v38';
 const FILES = [
   './', 'index.html', 'styles.css', 'app.js', 'db.js', 'calendar.js', 'ink.js', 'sync.js', 'weather.js', 'health.js', 'downtime.js', 'outbreaks.js', 'manifest.webmanifest',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png',
@@ -9,7 +9,7 @@ const FILES = [
 ];
 self.addEventListener('install', e => {
   // cache: 'reload' skips the browser's own copy, so an update never installs yesterday's files.
-  e.waitUntil(caches.open(VERSION).then(c => c.addAll(FILES.map(f => new Request(f, { cache: 'reload' })))).then(() => caches.open(VERSION)).then(c => c.add(new Request('/core/suite.js', { cache: 'reload' })).catch(() => {})) // the suite core, if reachable
+  e.waitUntil(caches.open(VERSION).then(c => c.addAll(FILES.map(f => new Request(f, { cache: 'reload' })))).then(() => caches.open(VERSION)).then(c => Promise.all(['/core/suite.js', '/core/text.js'].map(u => c.add(new Request(u, { cache: 'reload' })).catch(() => {})))) // the suite core, if reachable
     .then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', e => {

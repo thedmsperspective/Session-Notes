@@ -605,7 +605,7 @@ function worldDiseases() {
     <section class="card">
       <div class="card-head"><h2>Disease library</h2><span class="muted small">Darker Dungeons is third-party, not one of your WotC books.</span><button class="btn small push" data-act="disease-new">Create a disease</button></div>
       <div class="dis-lib">${lib.map(d => `<details class="dis-item" data-dis="${d.id}"><summary><b>${esc(d.name)}</b> <span class="muted small">${esc(d.rarity)} · DC ${d.dc} · ${H.fmtIncubation(d.incubation)} · ${esc(d.transmission)}</span> <span class="badge ${d.source === 'Homebrew' ? 'spent' : ''}">${esc(d.source)}</span></summary>
-        <p>${esc(d.description)}</p>
+        ${txt(d.description)}
         <ol class="dis-stages">${d.stages.map((st, i) => `<li>${esc(st)}${stageFxLine(d, i)}</li>`).join('')}</ol>
         <p><b>Cured:</b> ${esc(d.cured)}</p>
         <div class="row left"><button class="btn small" data-act="disease-edit">Edit</button></div>
@@ -911,7 +911,7 @@ function viewCalendar() {
       <p class="muted">${C.seasonOf(month, d)}</p>
       <ul class="moon-list">${C.CAL.moons.map(mo => { const ph = C.moonPhase(mo, ep); return `<li>${moonSVG(mo, ep, 22)} <b>${esc(mo.name)}</b> ${ph.name} <span class="muted">(day ${ph.day} of ${mo.cycle})</span></li>`; }).join('')}</ul>
       ${wxByEpoch[ep] && ep <= cur.epoch ? `<p class="wx-inline">${W.iconSVG(W.weatherIcon(wxByEpoch[ep]), 22)} ${esc(locById(wxByEpoch[ep].locationId)?.name || '')}: ${esc(W.describe(wxByEpoch[ep]))}, ${W.fmtF(wxByEpoch[ep].low)} to ${W.fmtF(wxByEpoch[ep].high)}</p>` : ''}
-      ${evs.map(e => `<div class="ev-detail"><b>${esc(e.label)}</b>${e.who ? ` <span class="muted small">· ${esc(e.who)}</span>` : ''}${e.description ? `<p class="small">${esc(e.description)}</p>` : ''}${e.kind !== 'astro' ? `<button type="button" class="link-btn small" data-hol="${esc(e.name)}">Read about it</button>` : ''}</div>`).join('')}
+      ${evs.map(e => `<div class="ev-detail"><b>${esc(e.label)}</b>${e.who ? ` <span class="muted small">· ${esc(e.who)}</span>` : ''}${e.description ? `<div class="small">${txt(e.description)}</div>` : ''}${e.kind !== 'astro' ? `<button type="button" class="link-btn small" data-hol="${esc(e.name)}">Read about it</button>` : ''}</div>`).join('')}
       ${ss.map(s => `<button class="link-btn" data-act="goto-session" data-id="${s.id}">Session ${s.number} started this day</button>`).join(' ')}
       ${ep !== cur.epoch ? `<div class="row left"><button class="btn" data-act="cal-set" data-epoch="${ep}">Make this the current in-game day</button></div>` : '<p class="small"><b>This is the current in-game day.</b></p>'}
     </section>`;
@@ -1865,6 +1865,10 @@ for (const [id, key] of [['diseasesToggle', 'diseasesOn'], ['trainingToggle', 't
   $('#' + id).addEventListener('change', async e => { const c = campaign(); c[key] = e.target.checked; await save('campaigns', c); render(); publishSoon(); openSettings(); });
 $('#brokerName').addEventListener('change', async e => { const c = campaign(); c.brokerName = e.target.value.trim(); await save('campaigns', c); render(); });
 
+// Several lines of typed text, with indents and bullet lists (the suite's /core/text.js; plain lines if it can't load)
+function txt(t) { return window.DMPText ? window.DMPText.textHTML(t) : `<div style="white-space:pre-wrap">${esc(t)}</div>`; }
+import('/core/text.js').catch(() => {});
+
 // ---------- the calendar editor
 function openCalendar() {
   const f = $('#calForm'), cal = C.CAL;
@@ -1975,7 +1979,7 @@ function showHoliday(name) {
   $('#holViewWhen').textContent = C.holidayWhen(e);
   $('#holViewWho').textContent = e.who ? `Celebrated by ${e.who}` : '';
   $('#holViewWho').hidden = !e.who;
-  $('#holViewDesc').innerHTML = e.description ? e.description.split(/\n+/).map(p => `<p>${esc(p)}</p>`).join('') : '<p class="muted">No description yet. Add one in Settings, Calendar.</p>';
+  $('#holViewDesc').innerHTML = e.description ? txt(e.description) : '<p class="muted">No description yet. Add one in Settings, Calendar.</p>';
   $('#holView').showModal();
 }
 document.addEventListener('click', e => { const b = e.target.closest('[data-hol]'); if (b) { e.preventDefault(); e.stopPropagation(); showHoliday(b.dataset.hol); } }, true);
