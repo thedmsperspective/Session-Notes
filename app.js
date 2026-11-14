@@ -421,6 +421,7 @@ function render() {
   if (state.view === 'party') v.innerHTML = viewParty();
   if (state.view === 'calendar') v.innerHTML = holidayBanner() + viewCalendar();
   if (state.view === 'history') v.innerHTML = viewHistory();
+  if (state.view === 'arcs') v.innerHTML = viewArcs();
   if (state.view === 'world') v.innerHTML = viewWorld();
   afterRender();
 }
@@ -786,6 +787,7 @@ function viewSession() {
       </table></div>
       ${open ? '' : '<p class="muted small">Stats as they were when this session ended.</p>'}
     </section>
+    ${open ? arcReminder() : ''}
 
 
     <section class="card notes-card" id="sec-notes">
@@ -2197,6 +2199,7 @@ async function partyFromSheets(data) {
     // the character tied to this sheet by its permanent id (or, before the suite, the sheet's own link)
     const p = state.pcs.find(x => !x.deleted && x.charId === s.id) || (s.snPcId && !state.pcs.some(x => x.charId) ? state.pcs.find(x => x.id === s.snPcId) : null);
     if (!p) continue;
+    if (s.story) (state.sheetStory ||= new Map()).set(p.id, s.story); // Backstory and goals, for the Arcs tab
     let ch = false;
     for (const [k, v] of [['maxHp', s.maxHp], ['ac', s.ac], ['pp', s.pp]]) if (v && p[k] !== v) { p[k] = v; ch = true; }
     if (ch) { await save('pcs', p); n++; }
@@ -2331,3 +2334,141 @@ function updateReady() {
     });
   }
 })();
+
+/* ---------- Character arcs: one personal arc per character, running alongside the campaign ----------
+   Kept on the character (pc.arcs), so they sync with the rest; only ever one that isn't Complete. Finished arcs stay
+   as a record, and a new one can start after. Beats are the planned steps: a one-time beat is ticked off once (with the
+   session it happened in); a repeatable one is used again and again (each use logged). Other characters can be
+   involved in an arc, but it stays its own character's story. Players never see any of it. */
+const ARC_STATUS = { not: 'Not started', active: 'In progress', done: 'Complete' };
+const arcsOf = pc => (pc.arcs ||= []);
+const curArc = pc => arcsOf(pc).find(a => a.status !== 'done') || null;
+const lastArc = pc => curArc(pc) || arcsOf(pc).at(-1) || null;
+const oneTime = a => (a.beats || []).filter(b => !b.repeat);
+const arcProgress = a => ({ done: oneTime(a).filter(b => b.done).length, all: oneTime(a).length });
+const nextBeat = a => oneTime(a).find(b => !b.done) || null;
+const sessName = id => { const s = state.sessions.find(x => x.id === id); return s ? `session ${s.number}` : 'an earlier session'; };
+const arcStatusTag = a => `<span class="pill arc-${a ? a.status : 'none'}">${a ? ARC_STATUS[a.status] : 'No arc yet'}</span>`;
+// The session a beat happens in: the one in progress, else the latest
+const beatSession = () => { const s = latestSession(); return s ? s.id : ''; };
+// Arcs someone else owns that this character is part of
+const involvedIn = pc => activePcs().filter(o => o.id !== pc.id).map(o => ({ o, a: curArc(o) })).filter(x => x.a && (x.a.involved || []).includes(pc.id));
+
+function viewArcs() {
+  const pc = state.arcPc && state.pcs.find(p => p.id === state.arcPc && !p.deleted);
+  if (pc) return arcDetail(pc);
+  const pcs = activePcs();
+  return `<section class="card"><div class="card-head"><h2>Character arcs</h2><span class="muted small">One personal arc for each character, running alongside the campaign. Only you see these.</span></div>
+    ${pcs.length ? `<div class="arc-grid">${pcs.map(p => {
+      const a = lastArc(p), pr = a ? arcProgress(a) : null, nb = a && a.status !== 'done' ? nextBeat(a) : null, inv = involvedIn(p);
+      return `<button class="arc-card" data-arc="open" data-id="${p.id}">
+        <span class="arc-top"><b>${esc(p.name)}</b>${arcStatusTag(a)}</span>
+        ${a ? `<span class="arc-title">${esc(a.title || 'Untitled arc')}</span>${pr.all ? `<span class="arc-bar" aria-label="${pr.done} of ${pr.all} beats"><i style="width:${Math.round(pr.done / pr.all * 100)}%"></i></span><span class="muted small">${pr.done} of ${pr.all} beats</span>` : ''}
+          ${nb ? `<span class="small">Next: ${esc(nb.text || 'Untitled beat')}</span>` : ''}` : '<span class="muted small">Tap to start their arc.</span>'}
+        ${inv.length ? `<span class="muted small">Also in: ${inv.map(x => esc(`${x.o.name}'s arc`)).join(', ')}</span>` : ''}
+      </button>`;
+    }).join('')}</div>` : '<p class="muted">No active characters yet. They come from the Character Sheet app, or add them on the Party tab.</p>'}</section>`;
+}
+
+function arcDetail(pc) {
+  let a = curArc(pc);
+  const story = state.sheetStory?.get(pc.id) || {};
+  const past = arcsOf(pc).filter(x => x !== a && x.status === 'done');
+  const others = activePcs().filter(o => o.id !== pc.id);
+  const block = (label, t) => (t ? `<h3>${label}</h3><div class="arc-story">${txt(t)}</div>` : '');
+  const beatRow = (b, i) => {
+    const uses = b.used || [];
+    return `<li class="beat ${b.done ? 'done' : ''}" data-beat="${b.id}">
+      <span class="beat-n">${i + 1}</span>
+      <textarea class="grow" rows="1" data-beat-text="${b.id}" placeholder="What happens: a scene, a clue, a choice…">${esc(b.text || '')}</textarea>
+      <span class="beat-side">
+        <label class="small"><input type="checkbox" data-beat-rep="${b.id}" ${b.repeat ? 'checked' : ''}> Can be used more than once</label>
+        ${b.repeat
+          ? `<span class="small">${uses.length ? `Used ${uses.length} time${uses.length > 1 ? 's' : ''}: ${uses.map(u => esc(sessName(u.s))).join(', ')}` : 'Not used yet'}</span>
+             <span class="row-btns"><button class="btn small" data-arc="use" data-id="${b.id}">Used again</button>${uses.length ? `<button class="btn small ghost" data-arc="unuse" data-id="${b.id}">Undo</button>` : ''}</span>`
+          : b.done ? `<span class="small">✓ Done in ${esc(sessName(b.done.s))}</span><button class="btn small ghost" data-arc="undone" data-id="${b.id}">Not done</button>`
+          : `<button class="btn small" data-arc="done" data-id="${b.id}">Done</button>`}
+        <span class="row-btns"><button class="icon-btn" data-arc="up" data-id="${b.id}" aria-label="Move up">↑</button><button class="icon-btn" data-arc="down" data-id="${b.id}" aria-label="Move down">↓</button><button class="icon-btn" data-arc="del-beat" data-id="${b.id}" aria-label="Remove this beat">✕</button></span>
+      </span></li>`;
+  };
+  return `<article class="arc-page" data-arcpc="${pc.id}">
+    <div class="row"><button class="btn small" data-arc="back">← All arcs</button></div>
+    <div class="arc-cols">
+      <section class="card">
+        <div class="card-head"><h2>${esc(pc.name)}'s arc</h2>${a ? arcStatusTag(a) : ''}</div>
+        ${a ? `
+          <label class="field"><span>Title</span><input data-arcf="title" value="${esc(a.title || '')}" placeholder="The Raven's Debt" autocomplete="off"></label>
+          <label class="field"><span>Status</span><select data-arcf="status">${Object.entries(ARC_STATUS).map(([k, n]) => `<option value="${k}" ${a.status === k ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+          <label class="field"><span>What it's about, and where it's heading</span><textarea class="grow" rows="3" data-arcf="summary">${esc(a.summary || '')}</textarea></label>
+          <h3>Beats ${(() => { const p = arcProgress(a); return p.all ? `<span class="muted small">${p.done} of ${p.all} done</span>` : ''; })()}</h3>
+          <ol class="beats">${(a.beats || []).map(beatRow).join('') || '<li class="muted">No beats yet: add the steps you have in mind.</li>'}</ol>
+          <button class="btn small" data-arc="add-beat">+ Add a beat</button>
+          ${others.length ? `<h3>Also involved</h3><p class="muted small">Other characters with a part to play. It stays ${esc(pc.name)}'s story.</p><div class="chips">${others.map(o => `<label class="chip"><input type="checkbox" data-arc-inv="${o.id}" ${(a.involved || []).includes(o.id) ? 'checked' : ''}> ${esc(o.name)}</label>`).join('')}</div>` : ''}
+          <label class="field"><span>Notes (secrets, ideas, what's been foreshadowed)</span><textarea class="grow" rows="3" data-arcf="notes">${esc(a.notes || '')}</textarea></label>
+          <div class="row"><span class="push"></span><button class="btn small danger" data-arc="del-arc">Delete this arc</button></div>`
+        : `<p>${past.length ? `${esc(pc.name)}'s last arc is complete.` : `${esc(pc.name)} doesn't have an arc yet.`}</p><button class="btn primary" data-arc="new">${past.length ? 'Start their next arc' : 'Start their arc'}</button>`}
+      </section>
+      <aside class="card arc-side">
+        <h2>From ${esc(pc.name)}'s sheet</h2>
+        ${block('Backstory', story.backstory)}${block('Player goals for the character', story.goalsPlayer)}${block('Character goals', story.goalsChar)}
+        ${story.backstory || story.goalsPlayer || story.goalsChar ? '' : `<p class="muted small">Nothing yet. These come from the Character tab of ${esc(pc.name)}'s sheet in the Character Sheet app (Backstory, Player goals, Character goals), once it's synced.</p>`}
+        ${involvedIn(pc).length ? `<h3>Involved in</h3><ul>${involvedIn(pc).map(x => `<li><a href="#" data-arc="open" data-id="${x.o.id}">${esc(x.o.name)}'s arc${x.a.title ? `: ${esc(x.a.title)}` : ''}</a></li>`).join('')}</ul>` : ''}
+        ${past.length ? `<h3>Finished arcs</h3>${past.slice().reverse().map(x => `<details class="arc-past"><summary>${esc(x.title || 'Untitled arc')}</summary>${x.summary ? txt(x.summary) : ''}<ol>${(x.beats || []).map(b => `<li>${esc(b.text || '')}${b.done ? ` <span class="muted small">(${esc(sessName(b.done.s))})</span>` : ''}${b.repeat ? ` <span class="muted small">(used ${(b.used || []).length}×)</span>` : ''}</li>`).join('')}</ol>${x.notes ? txt(x.notes) : ''}</details>`).join('')}` : ''}
+      </aside>
+    </div></article>`;
+}
+
+// On the session page: each arc in progress, its next beat and any repeatable ones
+function arcReminder() {
+  const list = activePcs().map(p => ({ p, a: curArc(p) })).filter(x => x.a && x.a.status === 'active');
+  if (!list.length) return '';
+  return `<section class="card" id="sec-arcs"><div class="card-head"><h2>Character arcs</h2><span class="muted small">What's next in each one. Tick a beat off when it happens.</span></div>
+    <ul class="arc-remind">${list.map(({ p, a }) => {
+      const nb = nextBeat(a), reps = (a.beats || []).filter(b => b.repeat);
+      return `<li><b>${esc(p.name)}</b>${a.title ? ` · ${esc(a.title)}` : ''}
+        ${nb ? `<div class="arc-next"><span>Next: ${esc(nb.text || 'Untitled beat')}</span><button class="btn small" data-arc="done" data-pc-arc="${p.id}" data-id="${nb.id}">Done</button></div>` : '<div class="muted small">No beats left to tick off.</div>'}
+        ${reps.map(b => `<div class="arc-next"><span class="muted">Any time: ${esc(b.text || 'Untitled beat')}${(b.used || []).length ? ` (used ${(b.used || []).length}×)` : ''}</span><button class="btn small ghost" data-arc="use" data-pc-arc="${p.id}" data-id="${b.id}">Used again</button></div>`).join('')}
+      </li>`;
+    }).join('')}</ul><p class="small"><a href="#" data-arc="goto">All arcs</a></p></section>`;
+}
+
+// Several lines of typed text, with indents and lists (the suite's /core/text.js) — defined above as txt()
+function arcCtx(el) {
+  const id = el.dataset.pcArc || el.closest('[data-arcpc]')?.dataset.arcpc;
+  const pc = id && state.pcs.find(p => p.id === id); if (!pc) return {};
+  return { pc, a: curArc(pc) };
+}
+$('#view').addEventListener('click', async e => {
+  const b = e.target.closest('[data-arc]'); if (!b) return;
+  e.preventDefault();
+  const act = b.dataset.arc;
+  if (act === 'open') { state.view = 'arcs'; state.arcPc = b.dataset.id; render(); window.scrollTo(0, 0); return; }
+  if (act === 'back') { state.arcPc = null; render(); return; }
+  if (act === 'goto') { state.view = 'arcs'; state.arcPc = null; document.querySelectorAll('.tabs [data-view]').forEach(t => t.setAttribute('aria-selected', String(t.dataset.view === 'arcs'))); render(); window.scrollTo(0, 0); return; }
+  const { pc, a } = arcCtx(b); if (!pc) return;
+  const beat = a && (a.beats || []).find(x => x.id === b.dataset.id);
+  switch (act) {
+    case 'new': arcsOf(pc).push({ id: uid(), title: '', status: 'not', summary: '', beats: [], involved: [], notes: '', createdAt: Date.now() }); break;
+    case 'add-beat': if (!a) return; (a.beats ||= []).push({ id: uid(), text: '', repeat: false }); break;
+    case 'del-beat': if (!beat) return; if (beat.text && !(await confirmBox('Remove this beat?', beat.text, 'Remove'))) return; a.beats = a.beats.filter(x => x !== beat); break;
+    case 'up': case 'down': { if (!beat) return; const i = a.beats.indexOf(beat), j = i + (act === 'up' ? -1 : 1); if (j < 0 || j >= a.beats.length) return; [a.beats[i], a.beats[j]] = [a.beats[j], a.beats[i]]; break; }
+    case 'done': if (!beat) return; beat.done = { s: beatSession(), at: Date.now() }; if (a.status === 'not') a.status = 'active'; toast(`${pc.name}'s arc: "${beat.text || 'beat'}" done.`); break;
+    case 'undone': if (!beat) return; delete beat.done; break;
+    case 'use': if (!beat) return; (beat.used ||= []).push({ s: beatSession(), at: Date.now() }); if (a.status === 'not') a.status = 'active'; toast(`${pc.name}'s arc: "${beat.text || 'beat'}" used.`); break;
+    case 'unuse': if (!beat) return; (beat.used || []).pop(); break;
+    case 'del-arc': if (!a) return; if (!(await confirmBox(`Delete ${pc.name}'s arc?`, 'Its beats and notes go too. This can\'t be undone.', 'Delete'))) return; pc.arcs = arcsOf(pc).filter(x => x !== a); break;
+    default: return;
+  }
+  await save('pcs', pc); render();
+});
+$('#view').addEventListener('input', e => {
+  const t = e.target, { pc, a } = arcCtx(t); if (!pc || !a) return;
+  if (t.dataset.arcf && t.dataset.arcf !== 'status') { a[t.dataset.arcf] = t.value; saveSoon('pcs', pc); }
+  if (t.dataset.beatText) { const b = a.beats.find(x => x.id === t.dataset.beatText); if (b) { b.text = t.value; saveSoon('pcs', pc); } }
+});
+$('#view').addEventListener('change', async e => {
+  const t = e.target, { pc, a } = arcCtx(t); if (!pc || !a) return;
+  if (t.dataset.arcf === 'status') { a.status = t.value; if (t.value === 'done') a.completedAt = Date.now(); await save('pcs', pc); render(); return; }
+  if (t.dataset.beatRep) { const b = a.beats.find(x => x.id === t.dataset.beatRep); if (b) { b.repeat = t.checked; await save('pcs', pc); render(); } return; }
+  if (t.dataset.arcInv) { const set = new Set(a.involved || []); if (t.checked) set.add(t.dataset.arcInv); else set.delete(t.dataset.arcInv); a.involved = [...set]; await save('pcs', pc); }
+});
