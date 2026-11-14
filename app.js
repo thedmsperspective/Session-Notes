@@ -2171,6 +2171,12 @@ async function linkParty() {
     }
     if (ch.name && pc.name !== ch.name) { pc.name = ch.name; await save('pcs', pc); changed = true; }
   }
+  // An "Unnamed" character added for a sheet that had no name and is no longer in the party: drop it
+  const ids = new Set((core.cachedParty?.() || []).map(c => c.id));
+  for (const pc of livePcs()) {
+    if (!pc.charId || ids.has(pc.charId) || pc.name !== 'Unnamed' || (pc.arcs || []).length) continue;
+    pc.deleted = true; await save('pcs', pc); changed = true;
+  }
   if (changed) render();
 }
 // What each player's sheet shows from here (deaths, Favor of Fate, diseases, survival), sent when it changes
