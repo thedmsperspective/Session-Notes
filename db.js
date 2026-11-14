@@ -5,8 +5,8 @@
 // Each record: { id, campaignId, name, ancestry, classes, maxHp, ac, pp, active, deleted, updatedAt, ... }
 
 const DB_NAME = 'session-notes';
-const DB_VERSION = 4;
-export const STORES = ['campaigns', 'pcs', 'sessions', 'ink', 'locations', 'weather', 'diseases', 'cases', 'outbreaks', 'training', 'trades', 'cards'];
+const DB_VERSION = 5;
+export const STORES = ['campaigns', 'pcs', 'sessions', 'ink', 'locations', 'weather', 'diseases', 'cases', 'outbreaks', 'training', 'trades', 'cards', 'slides'];
 let dbp;
 
 function open() {

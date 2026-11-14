@@ -15,7 +15,7 @@ const fmtReal = iso => { if (!iso) return ''; const [y, m, d] = iso.split('-').m
 const fold = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 const state = {
-  campaigns: [], pcs: [], sessions: [], ink: [], locations: [], weather: [], diseases: [], cases: [], outbreaks: [], training: [], trades: [], cards: [],
+  campaigns: [], pcs: [], sessions: [], ink: [], locations: [], weather: [], diseases: [], cases: [], outbreaks: [], training: [], trades: [], cards: [], slides: [],
   campaignId: null, view: 'session', sessionId: null, calMonth: null, calDay: null, query: '',
 };
 
@@ -278,7 +278,7 @@ async function save(store, rec) {
   const i = list.findIndex(r => r.id === rec.id);
   if (i >= 0) list[i] = rec; else list.push(rec);
   await db.put(store, rec);
-  if (store === 'pcs' || store === 'cases' || store === 'diseases') publishSoon();
+  if (store === 'pcs' || store === 'cases' || store === 'diseases' || store === 'slides') publishSoon();
   if (store === 'campaigns') campaignsChanged();
   return rec;
 }
@@ -313,8 +313,9 @@ function newPc(fields) {
 }
 
 async function load() {
-  const [campaigns, pcs, sessions, ink, locations, weather, diseases, cases, outbreaks, training, trades, cards] = await Promise.all(STORES.map(s => db.all(s)));
-  Object.assign(state, { campaigns, pcs, sessions, ink, locations, weather, diseases, cases, outbreaks, training, trades, cards });
+  const lists = await Promise.all(STORES.map(s => db.all(s)));
+  STORES.forEach((s, i) => { state[s] = lists[i]; });
+  const { campaigns } = state;
   // A brand-new library starts with the built-in diseases (an existing one keeps its own; they sync like any record)
   if (!state.diseases.length) {
     const addD = H.SEED_DISEASES.map(d => ({ ...d, stages: d.stages.slice(), updatedAt: 0 }));
@@ -422,6 +423,7 @@ function render() {
   if (state.view === 'calendar') v.innerHTML = holidayBanner() + viewCalendar();
   if (state.view === 'history') v.innerHTML = viewHistory();
   if (state.view === 'arcs') v.innerHTML = viewArcs();
+  if (state.view === 'slides') v.innerHTML = viewSlides();
   if (state.view === 'world') v.innerHTML = viewWorld();
   afterRender();
 }
@@ -2195,6 +2197,13 @@ async function publishSheets() {
     if (sentSn.get(pc.id) === k) continue;
     if (await L.channel(keys.get(pc.charId), 'sn', { sn: view })) sentSn.set(pc.id, k);
   }
+  // the Table Rules you've shared, to every sheet in this campaign
+  for (const pc of state.pcs) {
+    if (pc.deleted || !pc.charId || !keys.has(pc.charId)) continue;
+    const rules = sharedRules(pc.campaignId), k = JSON.stringify(rules);
+    if (sentSn.get(`rules:${pc.id}`) === k) continue;
+    if (await L.channel(keys.get(pc.charId), 'rules', { tableRules: rules })) sentSn.set(`rules:${pc.id}`, k);
+  }
 }
 
 // The character sheet app publishes each sheet's Max HP, AC and Passive Perception; linked characters take them
@@ -2477,4 +2486,194 @@ $('#view').addEventListener('change', async e => {
   if (t.dataset.arcf === 'status') { a.status = t.value; if (t.value === 'done') a.completedAt = Date.now(); await save('pcs', pc); render(); return; }
   if (t.dataset.beatRep) { const b = a.beats.find(x => x.id === t.dataset.beatRep); if (b) { b.repeat = t.checked; await save('pcs', pc); render(); } return; }
   if (t.dataset.arcInv) { const set = new Set(a.involved || []); if (t.checked) set.add(t.dataset.arcInv); else set.delete(t.dataset.arcInv); a.involved = [...set]; await save('pcs', pc); }
+});
+
+/* ---------- Slides: sets of slides for the table screen, and Table Rules for the players' sheets ----------
+   Each set belongs to a campaign and syncs with the rest of your notes (it lives in your Drive, never in the app's
+   code). A slide has a title, text and an optional picture. "Show on table screen" puts a slide on the Bestiary's
+   player view (opened on this same device, like a monster's picture) until you go back to combat.
+   A set can also have its own Table Rules write-up. Only sets you switch on go to the players' sheets, where a
+   new or changed write-up is marked Updated until they open it. Players never see anything else here. */
+const liveSets = () => state.slides.filter(s => !s.deleted && s.campaignId === state.campaignId).sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || (a.createdAt || 0) - (b.createdAt || 0));
+const setById = id => state.slides.find(s => s.id === id && !s.deleted);
+// What the players' sheets get: the shared write-ups, in your order
+function sharedRules(campaignId) {
+  return state.slides.filter(s => !s.deleted && s.campaignId === campaignId && s.rules?.on && String(s.rules.text || '').trim())
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || (a.createdAt || 0) - (b.createdAt || 0))
+    .map(s => ({ id: s.id, title: s.title || 'Table rule', text: s.rules.text, at: s.rules.at || s.updatedAt || 0 }));
+}
+
+function viewSlides() {
+  const set = state.slideSet && setById(state.slideSet);
+  if (set) return slideEditor(set);
+  const sets = liveSets();
+  return `<section class="card"><div class="card-head"><h2>Slides</h2><span class="muted small">Show new or changed rules on the table screen. Any set can also go on the players' sheets, on a Table Rules tab.</span></div>
+    ${sets.length ? `<ul class="slide-sets">${sets.map((s, i) => `<li class="slide-set">
+      <button class="slide-set-open" data-sl="open" data-id="${s.id}">
+        <b>${esc(s.title || 'Untitled set')}</b>
+        <span class="muted small">${(s.slides || []).length} slide${(s.slides || []).length === 1 ? '' : 's'}${s.rules?.on ? ' · <span class="pill arc-active">On players\' sheets</span>' : ''}</span>
+      </button>
+      <span class="row-btns">
+        <button class="btn small primary" data-sl="show" data-id="${s.id}" ${(s.slides || []).length ? '' : 'disabled'}>Show on table screen</button>
+        <button class="icon-btn" data-sl="set-up" data-id="${s.id}" aria-label="Move up" ${i ? '' : 'disabled'}>↑</button>
+        <button class="icon-btn" data-sl="set-down" data-id="${s.id}" aria-label="Move down" ${i < sets.length - 1 ? '' : 'disabled'}>↓</button>
+      </span></li>`).join('')}</ul>` : '<p class="muted">No slides yet. Make a set for a new rule, a change, or anything you want the table to see.</p>'}
+    <button class="btn" data-sl="new">+ New set of slides</button>
+    <p class="muted small slide-tip">The table screen is the Bestiary's player view. Open it on this same device (Bestiary, combat tracker, Player view), and your slides show there.</p></section>`;
+}
+
+function slideEditor(s) {
+  const slides = s.slides || [];
+  const one = (sl, i) => `<li class="slide-ed" data-slide="${sl.id}">
+    <div class="slide-ed-head"><b>Slide ${i + 1}</b><span class="row-btns">
+      <button class="btn small" data-sl="show" data-id="${s.id}" data-at="${i}">Show this one</button>
+      <button class="icon-btn" data-sl="up" data-id="${sl.id}" aria-label="Move up" ${i ? '' : 'disabled'}>↑</button>
+      <button class="icon-btn" data-sl="down" data-id="${sl.id}" aria-label="Move down" ${i < slides.length - 1 ? '' : 'disabled'}>↓</button>
+      <button class="icon-btn" data-sl="del" data-id="${sl.id}" aria-label="Remove this slide">✕</button></span></div>
+    <label class="field"><span>Title</span><input data-slf="title" data-id="${sl.id}" value="${esc(sl.title || '')}" placeholder="Notches" autocomplete="off"></label>
+    <label class="field"><span>Text (leave it empty for a picture-only slide)</span><textarea class="grow" rows="3" data-slf="text" data-id="${sl.id}" placeholder="- A natural 1 on an attack notches your weapon&#10;- At the limit, it breaks">${esc(sl.text || '')}</textarea></label>
+    <div class="slide-pic">${sl.img
+      ? `<img src="${esc(sl.img)}" alt=""><span class="row-btns"><label class="btn small">Change picture<input type="file" accept="image/*" data-slpic="${sl.id}" hidden></label><button class="btn small ghost" data-sl="nopic" data-id="${sl.id}">Remove picture</button></span>`
+      : `<label class="btn small">Add a picture<input type="file" accept="image/*" data-slpic="${sl.id}" hidden></label><span class="muted small">Optional</span>`}</div>
+  </li>`;
+  const r = s.rules || {};
+  return `<article class="slide-page" data-slset="${s.id}">
+    <div class="row"><button class="btn small" data-sl="back">← All slides</button><span class="push"></span>
+      <button class="btn small primary" data-sl="show" data-id="${s.id}" ${slides.length ? '' : 'disabled'}>Show on table screen</button></div>
+    <section class="card">
+      <label class="field"><span>Name of this set</span><input data-sls="title" value="${esc(s.title || '')}" placeholder="Notches: how weapons and armor wear down" autocomplete="off"></label>
+      <ol class="slide-list">${slides.map(one).join('') || '<li class="muted">No slides yet.</li>'}</ol>
+      <button class="btn small" data-sl="add">+ Add a slide</button>
+    </section>
+    <section class="card">
+      <div class="card-head"><h2>Table Rules write-up</h2></div>
+      <label class="chip"><input type="checkbox" data-sls="share" ${r.on ? 'checked' : ''}> Show on players' sheets</label>
+      <p class="muted small">Players see this write-up on the Table Rules tab of their sheets, only while this is switched on. It's separate from the slides, so it can say more. When you change it, they see it marked Updated.</p>
+      <label class="field"><span>Write-up</span><textarea class="grow" rows="6" data-sls="rules" placeholder="The full rule, with examples and exact numbers">${esc(r.text || '')}</textarea></label>
+      ${slides.length && !String(r.text || '').trim() ? '<button class="btn small" data-sl="copy">Start from the slides</button>' : ''}
+      ${r.on && !String(r.text || '').trim() ? '<p class="small warn-text">Nothing goes to the sheets until the write-up has some text.</p>' : ''}
+    </section>
+    <div class="row"><span class="push"></span><button class="btn small danger" data-sl="del-set">Delete this set</button></div>
+  </article>`;
+}
+
+// ---------- the table screen (the Bestiary's player view, on this device)
+const PV_KEY = 'bestiary-player', PV_SLIDE = 'bestiary-player-slide';
+let pvChan = null;
+try { pvChan = new BroadcastChannel(PV_KEY); } catch { /* storage events still work */ }
+let showing = null; // { setId, i }
+function slideMsg() {
+  const s = showing && setById(showing.setId), sl = s?.slides?.[showing.i];
+  if (!sl) return { type: 'slide', at: Date.now(), slide: null };
+  return { type: 'slide', at: Date.now(), slide: { set: s.title || '', title: sl.title || '', html: String(sl.text || '').trim() ? txt(sl.text) : '', img: sl.img || '', n: showing.i + 1, of: s.slides.length } };
+}
+function sendSlide() {
+  const m = slideMsg();
+  try { localStorage.setItem(PV_SLIDE, JSON.stringify(m)); } catch { try { localStorage.setItem(PV_SLIDE, JSON.stringify({ ...m, slide: m.slide && { ...m.slide, img: '' } })); } catch { /* blocked */ } }
+  try { pvChan?.postMessage(m); } catch { /* ignore */ }
+  slideBar();
+}
+function showSet(id, i = 0) {
+  const s = setById(id); if (!s?.slides?.length) return;
+  showing = { setId: id, i: Math.max(0, Math.min(i, s.slides.length - 1)) };
+  sendSlide();
+  toast('Showing on the table screen. Use the bar at the bottom to move through the slides.');
+}
+function stopShowing() { showing = null; sendSlide(); }
+function slideBar() {
+  let bar = $('#slideBar');
+  const s = showing && setById(showing.setId);
+  if (!s) { bar?.remove(); document.body.classList.remove('has-slidebar'); return; }
+  if (!bar) {
+    bar = document.createElement('div'); bar.id = 'slideBar'; bar.className = 'slide-bar';
+    bar.addEventListener('click', e => {
+      const b = e.target.closest('[data-bar]'); if (!b || !showing) return;
+      const cur = setById(showing.setId); if (!cur) return stopShowing();
+      if (b.dataset.bar === 'prev' && showing.i > 0) { showing.i--; sendSlide(); }
+      if (b.dataset.bar === 'next' && showing.i < cur.slides.length - 1) { showing.i++; sendSlide(); }
+      if (b.dataset.bar === 'stop') { stopShowing(); toast('The table screen is back to combat.'); }
+    });
+    document.body.append(bar);
+  }
+  document.body.classList.add('has-slidebar');
+  const n = s.slides.length, sl = s.slides[showing.i];
+  bar.innerHTML = `<span class="slide-bar-what"><span class="muted small">On the table screen · ${esc(s.title || 'Untitled set')}</span><b>${showing.i + 1} of ${n}${sl?.title ? `: ${esc(sl.title)}` : ''}</b></span>
+    <button class="btn small" data-bar="prev" ${showing.i ? '' : 'disabled'}>‹ Back</button>
+    <button class="btn small primary" data-bar="next" ${showing.i < n - 1 ? '' : 'disabled'}>Next ›</button>
+    <button class="btn small" data-bar="stop">Back to combat</button>`;
+}
+
+// A picture, made smaller for the screen (and so it fits in your synced notes)
+function shrinkPic(file, max = 1600) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file), im = new Image();
+    im.onload = () => {
+      const k = Math.min(1, max / Math.max(im.naturalWidth, im.naturalHeight));
+      const cv = document.createElement('canvas'); cv.width = Math.round(im.naturalWidth * k); cv.height = Math.round(im.naturalHeight * k);
+      const g = cv.getContext('2d'); g.fillStyle = '#000'; g.fillRect(0, 0, cv.width, cv.height); g.drawImage(im, 0, 0, cv.width, cv.height);
+      URL.revokeObjectURL(url); res(cv.toDataURL('image/jpeg', 0.82));
+    };
+    im.onerror = () => { URL.revokeObjectURL(url); rej(new Error("That file isn't a picture this device can open.")); };
+    im.src = url;
+  });
+}
+
+const slCtx = el => setById(el.closest('[data-slset]')?.dataset.slset || '');
+function slideAfterChange(s) { if (showing?.setId === s.id) { if (!s.slides.length) stopShowing(); else { showing.i = Math.min(showing.i, s.slides.length - 1); sendSlide(); } } }
+$('#view').addEventListener('click', async e => {
+  const b = e.target.closest('[data-sl]'); if (!b || b.disabled) return;
+  e.preventDefault();
+  const act = b.dataset.sl;
+  if (act === 'new') {
+    const s = { id: uid(), campaignId: state.campaignId, title: '', slides: [{ id: uid(), title: '', text: '', img: '' }], rules: { on: false, text: '', at: 0 }, order: liveSets().length, createdAt: Date.now() };
+    await save('slides', s); state.slideSet = s.id; render(); window.scrollTo(0, 0); return;
+  }
+  if (act === 'open') { state.slideSet = b.dataset.id; render(); window.scrollTo(0, 0); return; }
+  if (act === 'back') { state.slideSet = null; render(); return; }
+  if (act === 'show') { showSet(b.dataset.id, Number(b.dataset.at) || 0); return; }
+  if (act === 'set-up' || act === 'set-down') {
+    const list = liveSets(), i = list.findIndex(x => x.id === b.dataset.id), j = i + (act === 'set-up' ? -1 : 1);
+    if (i < 0 || j < 0 || j >= list.length) return;
+    [list[i], list[j]] = [list[j], list[i]];
+    for (const [k, x] of list.entries()) if (x.order !== k) { x.order = k; if (x.rules?.on) x.rules.at = x.rules.at || Date.now(); await save('slides', x); }
+    render(); return;
+  }
+  const s = slCtx(b); if (!s) return;
+  const sl = (s.slides || []).find(x => x.id === b.dataset.id);
+  switch (act) {
+    case 'add': (s.slides ||= []).push({ id: uid(), title: '', text: '', img: '' }); break;
+    case 'del': if (!sl) return; if ((sl.title || sl.text || sl.img) && !(await confirmBox('Remove this slide?', sl.title || 'Its text and picture go too.', 'Remove'))) return; s.slides = s.slides.filter(x => x !== sl); break;
+    case 'up': case 'down': { if (!sl) return; const i = s.slides.indexOf(sl), j = i + (act === 'up' ? -1 : 1); if (j < 0 || j >= s.slides.length) return; [s.slides[i], s.slides[j]] = [s.slides[j], s.slides[i]]; break; }
+    case 'nopic': if (!sl) return; sl.img = ''; break;
+    case 'copy': {
+      s.rules ||= { on: false, text: '', at: 0 };
+      s.rules.text = s.slides.map(x => [x.title ? `**${x.title}**` : '', x.text || ''].filter(Boolean).join('\n')).filter(Boolean).join('\n\n');
+      s.rules.at = Date.now(); break;
+    }
+    case 'del-set':
+      if (!(await confirmBox(`Delete ${s.title || 'this set'}?`, `Its slides go too${s.rules?.on ? ', and it comes off the players\' sheets' : ''}. This can't be undone.`, 'Delete'))) return;
+      s.deleted = true; if (showing?.setId === s.id) stopShowing(); state.slideSet = null; break;
+    default: return;
+  }
+  await save('slides', s); slideAfterChange(s); render();
+});
+$('#view').addEventListener('input', e => {
+  const t = e.target, s = slCtx(t); if (!s) return;
+  if (t.dataset.sls === 'title') { s.title = t.value; if (s.rules?.on) s.rules.at = Date.now(); saveSoon('slides', s); }
+  if (t.dataset.sls === 'rules') { s.rules ||= { on: false, text: '', at: 0 }; s.rules.text = t.value; s.rules.at = Date.now(); saveSoon('slides', s, 1200); }
+  if (t.dataset.slf) { const sl = s.slides.find(x => x.id === t.dataset.id); if (sl) { sl[t.dataset.slf] = t.value; saveSoon('slides', s); if (showing?.setId === s.id) { clearTimeout(slideAfterChange.t); slideAfterChange.t = setTimeout(() => slideAfterChange(s), 500); } } }
+});
+$('#view').addEventListener('change', async e => {
+  const t = e.target, s = slCtx(t); if (!s) return;
+  if (t.dataset.sls === 'share') {
+    s.rules ||= { on: false, text: '', at: 0 }; s.rules.on = t.checked; if (t.checked && !s.rules.at) s.rules.at = Date.now();
+    await save('slides', s); render();
+    toast(t.checked ? (String(s.rules.text || '').trim() ? 'On the players\' sheets, on their Table Rules tab.' : 'Write it up below, and it goes on the players\' sheets.') : 'Taken off the players\' sheets.');
+    return;
+  }
+  if (t.dataset.slpic) {
+    const f = t.files?.[0], sl = s.slides.find(x => x.id === t.dataset.slpic); if (!f || !sl) return;
+    try { sl.img = await shrinkPic(f); await save('slides', s); slideAfterChange(s); render(); }
+    catch (err) { toast(err.message); }
+  }
 });

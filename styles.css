@@ -538,3 +538,26 @@ button.tn-ev { display: block; text-align: left; padding: 0; }
 .arc-past { margin: 6px 0; } .arc-past summary { cursor: pointer; }
 .arc-remind { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
 .arc-next { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 4px; }
+
+/* Slides */
+.slide-sets { list-style: none; padding: 0; margin: 0 0 12px; display: grid; gap: 8px; }
+.slide-set { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2); }
+.slide-set-open { flex: 1 1 220px; min-width: 0; display: flex; flex-direction: column; gap: 4px; text-align: left; font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+.slide-set-open b { font-family: var(--serif); font-size: 18px; overflow-wrap: anywhere; }
+.slide-tip { margin-top: 12px; }
+.slide-page .card { margin-top: 10px; }
+.slide-page .field { display: block; margin: 10px 0; }
+.slide-page .field > span { display: block; font-size: 14px; color: var(--muted); margin-bottom: 4px; }
+.slide-page .field input, .slide-page .field textarea { width: 100%; box-sizing: border-box; }
+.slide-list { list-style: none; padding: 0; margin: 8px 0; display: grid; gap: 10px; }
+.slide-ed { padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+.slide-ed-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
+.slide-pic { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.slide-pic img { max-width: min(260px, 100%); max-height: 160px; border-radius: 8px; border: 1px solid var(--line); object-fit: contain; background: #000; }
+.slide-pic .btn { cursor: pointer; }
+.warn-text { color: var(--danger); }
+.slide-bar { position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 50; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 10px; width: max-content; max-width: calc(100vw - 24px); box-sizing: border-box; padding: 10px 14px; border-radius: 14px; background: var(--surface); border: 1px solid var(--line-strong); box-shadow: 0 6px 24px rgba(0,0,0,.22); }
+.slide-bar-what { display: flex; flex-direction: column; min-width: 0; max-width: 340px; }
+.slide-bar-what b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.has-slidebar { padding-bottom: 110px; }
+@media (max-width: 600px) { .slide-bar { left: 8px; right: 8px; transform: none; width: auto; } .slide-bar-what { flex-basis: 100%; max-width: none; } }
