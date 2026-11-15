@@ -561,3 +561,18 @@ button.tn-ev { display: block; text-align: left; padding: 0; }
 .slide-bar-what b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 body.has-slidebar { padding-bottom: 110px; }
 @media (max-width: 600px) { .slide-bar { left: 8px; right: 8px; transform: none; width: auto; } .slide-bar-what { flex-basis: 100%; max-width: none; } }
+.beat-more { grid-column: 2; }
+.beat-more summary { cursor: pointer; font-size: 14px; color: var(--muted); padding: 2px 0; }
+.beat-more[open] summary { margin-bottom: 4px; }
+.beat-more .field { display: block; margin: 8px 0; }
+.beat-more .field > span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 3px; }
+.beat-more textarea { width: 100%; box-sizing: border-box; resize: vertical; text-decoration: none !important; color: var(--ink) !important; }
+.beat textarea.readaloud, .read-box { border-left: 4px solid var(--accent); }
+.read-dlg { width: min(860px, calc(100vw - 24px)); max-height: calc(100vh - 32px); box-sizing: border-box; padding: 18px 20px; border: 1px solid var(--line-strong); border-radius: 16px; background: var(--surface); color: var(--ink); }
+.read-dlg::backdrop { background: rgba(0,0,0,.5); }
+.read-head { display: flex; align-items: flex-start; gap: 12px; justify-content: space-between; }
+.read-head h2 { margin: 2px 0 12px; font-family: var(--serif); }
+.read-box { font-family: var(--serif); font-size: clamp(20px, 2.4vw, 26px); line-height: 1.5; padding: 12px 16px; background: var(--surface-2); border-radius: 8px; }
+.read-dm { margin-top: 12px; }
+.read-dm summary { cursor: pointer; color: var(--muted); }
+.read-foot { margin-top: 14px; flex-wrap: wrap; gap: 8px; }

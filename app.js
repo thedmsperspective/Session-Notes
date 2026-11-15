@@ -2403,8 +2403,13 @@ function arcDetail(pc) {
              <span class="row-btns"><button class="btn small" data-arc="use" data-id="${b.id}">Used again</button>${uses.length ? `<button class="btn small ghost" data-arc="unuse" data-id="${b.id}">Undo</button>` : ''}</span>`
           : b.done ? `<span class="small">✓ Done in ${esc(sessName(b.done.s))}</span><button class="btn small ghost" data-arc="undone" data-id="${b.id}">Not done</button>`
           : `<button class="btn small" data-arc="done" data-id="${b.id}">Done</button>`}
+        ${String(b.read || '').trim() ? `<button class="btn small" data-arc="read" data-id="${b.id}">Read</button>` : ''}
         <span class="row-btns"><button class="icon-btn" data-arc="up" data-id="${b.id}" aria-label="Move up">↑</button><button class="icon-btn" data-arc="down" data-id="${b.id}" aria-label="Move down">↓</button><button class="icon-btn" data-arc="del-beat" data-id="${b.id}" aria-label="Remove this beat">✕</button></span>
-      </span></li>`;
+      </span>
+      <details class="beat-more" data-beat-more="${b.id}" ${beatOpen.has(b.id) ? 'open' : ''}><summary>Read-aloud and DM notes${[b.read, b.dm].some(x => String(x || '').trim()) ? ` <span class="muted small">(${[String(b.read || '').trim() && 'read-aloud', String(b.dm || '').trim() && 'notes'].filter(Boolean).join(', ')})</span>` : ''}</summary>
+        <label class="field"><span>Read-aloud (what you read to the table)</span><textarea class="grow readaloud" rows="4" data-beat-read="${b.id}" placeholder="The fire gutters. A raven lands on the sill and speaks your name…">${esc(b.read || '')}</textarea></label>
+        <label class="field"><span>DM notes (what's really going on, what if they ask…)</span><textarea class="grow" rows="3" data-beat-dm="${b.id}">${esc(b.dm || '')}</textarea></label>
+      </details></li>`;
   };
   return `<article class="arc-page" data-arcpc="${pc.id}">
     <div class="row"><button class="btn small" data-arc="back">← All arcs</button></div>
@@ -2433,6 +2438,36 @@ function arcDetail(pc) {
     </div></article>`;
 }
 
+const beatOpen = new Set(); // which beats have their read-aloud and notes open
+const readBtn = (p, b) => (String(b.read || '').trim() ? `<button class="btn small" data-arc="read" data-pc-arc="${p.id}" data-id="${b.id}">Read</button>` : '');
+
+// A beat's read-aloud, big and easy to read off the tablet at the table. Only you see it.
+function readAloud(pc, a, beat) {
+  document.getElementById('readDlg')?.remove();
+  const d = document.createElement('dialog'); d.id = 'readDlg'; d.className = 'read-dlg';
+  const paint = () => {
+    const uses = beat.used || [];
+    d.innerHTML = `<div class="read-head"><div><span class="muted small">${esc(pc.name)}${a.title ? ` · ${esc(a.title)}` : ''}</span><h2>${esc(beat.text || 'Untitled beat')}</h2></div><button class="icon-btn" data-rd="close" aria-label="Close">✕</button></div>
+      <div class="read-box">${txt(beat.read || '')}</div>
+      ${String(beat.dm || '').trim() ? `<details class="read-dm"><summary>DM notes</summary>${txt(beat.dm)}</details>` : ''}
+      <div class="row read-foot"><span class="muted small">${beat.repeat ? (uses.length ? `Used ${uses.length} time${uses.length > 1 ? 's' : ''}` : 'Not used yet') : beat.done ? `✓ Done in ${esc(sessName(beat.done.s))}` : ''}</span><span class="push"></span>
+        ${beat.repeat ? '<button class="btn primary" data-rd="use">Used again</button>' : beat.done ? '' : '<button class="btn primary" data-rd="done">Done</button>'}
+        <button class="btn" data-rd="close">Close</button></div>`;
+  };
+  paint();
+  d.addEventListener('click', async e => {
+    const b = e.target.closest('[data-rd]');
+    if (!b) { if (e.target === d) d.close(); return; }
+    if (b.dataset.rd === 'close') return d.close();
+    if (b.dataset.rd === 'done') { beat.done = { s: beatSession(), at: Date.now() }; if (a.status === 'not') a.status = 'active'; }
+    if (b.dataset.rd === 'use') { (beat.used ||= []).push({ s: beatSession(), at: Date.now() }); if (a.status === 'not') a.status = 'active'; }
+    await save('pcs', pc); render(); d.close();
+    toast(`${pc.name}'s arc: "${beat.text || 'beat'}" ${b.dataset.rd === 'use' ? 'used again' : 'done'}.`);
+  });
+  d.addEventListener('close', () => d.remove());
+  document.body.append(d); d.showModal();
+}
+
 // On the session page: each arc in progress, its next beat and any repeatable ones
 function arcReminder() {
   const list = activePcs().map(p => ({ p, a: curArc(p) })).filter(x => x.a && x.a.status === 'active');
@@ -2441,8 +2476,8 @@ function arcReminder() {
     <ul class="arc-remind">${list.map(({ p, a }) => {
       const nb = nextBeat(a), reps = (a.beats || []).filter(b => b.repeat);
       return `<li><b>${esc(p.name)}</b>${a.title ? ` · ${esc(a.title)}` : ''}
-        ${nb ? `<div class="arc-next"><span>Next: ${esc(nb.text || 'Untitled beat')}</span><button class="btn small" data-arc="done" data-pc-arc="${p.id}" data-id="${nb.id}">Done</button></div>` : '<div class="muted small">No beats left to tick off.</div>'}
-        ${reps.map(b => `<div class="arc-next"><span class="muted">Any time: ${esc(b.text || 'Untitled beat')}${(b.used || []).length ? ` (used ${(b.used || []).length}×)` : ''}</span><button class="btn small ghost" data-arc="use" data-pc-arc="${p.id}" data-id="${b.id}">Used again</button></div>`).join('')}
+        ${nb ? `<div class="arc-next"><span>Next: ${esc(nb.text || 'Untitled beat')}</span><span class="row-btns">${readBtn(p, nb)}<button class="btn small" data-arc="done" data-pc-arc="${p.id}" data-id="${nb.id}">Done</button></span></div>` : '<div class="muted small">No beats left to tick off.</div>'}
+        ${reps.map(b => `<div class="arc-next"><span class="muted">Any time: ${esc(b.text || 'Untitled beat')}${(b.used || []).length ? ` (used ${(b.used || []).length}×)` : ''}</span><span class="row-btns">${readBtn(p, b)}<button class="btn small ghost" data-arc="use" data-pc-arc="${p.id}" data-id="${b.id}">Used again</button></span></div>`).join('')}
       </li>`;
     }).join('')}</ul><p class="small"><a href="#" data-arc="goto">All arcs</a></p></section>`;
 }
@@ -2462,6 +2497,7 @@ $('#view').addEventListener('click', async e => {
   if (act === 'goto') { state.view = 'arcs'; state.arcPc = null; document.querySelectorAll('.tabs [data-view]').forEach(t => t.setAttribute('aria-selected', String(t.dataset.view === 'arcs'))); render(); window.scrollTo(0, 0); return; }
   const { pc, a } = arcCtx(b); if (!pc) return;
   const beat = a && (a.beats || []).find(x => x.id === b.dataset.id);
+  if (act === 'read') { if (beat) readAloud(pc, a, beat); return; }
   switch (act) {
     case 'new': arcsOf(pc).push({ id: uid(), title: '', status: 'not', summary: '', beats: [], involved: [], notes: '', createdAt: Date.now() }); break;
     case 'add-beat': if (!a) return; (a.beats ||= []).push({ id: uid(), text: '', repeat: false }); break;
@@ -2480,6 +2516,7 @@ $('#view').addEventListener('input', e => {
   const t = e.target, { pc, a } = arcCtx(t); if (!pc || !a) return;
   if (t.dataset.arcf && t.dataset.arcf !== 'status') { a[t.dataset.arcf] = t.value; saveSoon('pcs', pc); }
   if (t.dataset.beatText) { const b = a.beats.find(x => x.id === t.dataset.beatText); if (b) { b.text = t.value; saveSoon('pcs', pc); } }
+  if (t.dataset.beatRead || t.dataset.beatDm) { const b = a.beats.find(x => x.id === (t.dataset.beatRead || t.dataset.beatDm)); if (b) { b[t.dataset.beatRead ? 'read' : 'dm'] = t.value; saveSoon('pcs', pc, 1000); } }
 });
 $('#view').addEventListener('change', async e => {
   const t = e.target, { pc, a } = arcCtx(t); if (!pc || !a) return;
@@ -2677,3 +2714,5 @@ $('#view').addEventListener('change', async e => {
     catch (err) { toast(err.message); }
   }
 });
+// keep a beat's read-aloud and notes open while you work on the arc
+$('#view').addEventListener('toggle', e => { const id = e.target.dataset?.beatMore; if (id) (e.target.open ? beatOpen.add(id) : beatOpen.delete(id)); }, true);
