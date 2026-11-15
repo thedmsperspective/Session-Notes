@@ -584,3 +584,5 @@ body.has-slidebar { padding-bottom: 110px; }
 .phase-tag { display: inline-block; font-size: 12px; padding: 1px 7px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); color: var(--muted); vertical-align: 1px; }
 .beat-phase select { margin-left: 4px; }
 .phase-name { padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); }
+.phase-fold { font-size: 18px; width: 32px; min-width: 32px; }
+.phase-sum { margin-left: auto; }

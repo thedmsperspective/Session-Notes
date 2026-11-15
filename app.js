@@ -2459,23 +2459,24 @@ function beatsHTML(a, beatRow) {
   const loose = all.filter(b => !phaseOf(a, b));
   const group = (p, list, i) => {
     const one = list.filter(b => !b.repeat), done = one.filter(b => b.done).length, closed = !!p?.done;
-    const hide = closed && !phaseShow.has(p.id);
+    // folded: what you chose for it, else folded once it's complete
+    const hide = p ? (p.min ?? closed) : !!a.looseMin;
     return `<section class="phase ${closed || (one.length && done === one.length) ? 'phase-done' : ''}">
-      <div class="phase-head">${p
+      <div class="phase-head"><button class="icon-btn phase-fold" data-arc="phase-fold" data-id="${p ? p.id : ''}" aria-expanded="${!hide}" aria-label="${hide ? 'Expand' : 'Minimize'} this phase" title="${hide ? 'Expand' : 'Minimize'}">${hide ? '▸' : '▾'}</button>${p
         ? `<input class="phase-name" data-phase-name="${p.id}" value="${esc(p.name || '')}" placeholder="Phase ${i + 1}" aria-label="Phase name" autocomplete="off">
            <span class="muted small">${closed ? `<span class="pill arc-done">Complete</span> ${esc(sessName(p.done.s))}${one.length ? ` · ${done} of ${one.length} beats done` : ''}` : one.length ? `${done} of ${one.length} done` : ''}</span>
-           ${closed ? `<button class="btn small ghost" data-arc="phase-open" data-id="${p.id}">Reopen</button><button class="btn small ghost" data-arc="phase-show" data-id="${p.id}">${hide ? 'Show beats' : 'Hide beats'}</button>` : `<button class="btn small" data-arc="phase-done" data-id="${p.id}">Mark complete</button>`}
+           ${closed ? `<button class="btn small ghost" data-arc="phase-open" data-id="${p.id}">Reopen</button>` : `<button class="btn small" data-arc="phase-done" data-id="${p.id}">Mark complete</button>`}
            <span class="row-btns"><button class="icon-btn" data-arc="phase-up" data-id="${p.id}" aria-label="Move phase up" ${i ? '' : 'disabled'}>↑</button><button class="icon-btn" data-arc="phase-down" data-id="${p.id}" aria-label="Move phase down" ${i < ph.length - 1 ? '' : 'disabled'}>↓</button><button class="icon-btn" data-arc="del-phase" data-id="${p.id}" aria-label="Remove this phase">✕</button></span>`
-        : '<b class="phase-loose">Not in a phase</b>'}</div>
+        : '<b class="phase-loose">Not in a phase</b>'}${hide ? `<span class="muted small phase-sum">${list.length} beat${list.length === 1 ? '' : 's'}</span>` : ''}</div>
       ${hide ? (n += list.length, '') : `<ol class="beats" start="${n + 1}">${list.map(b => beatRow(b, n++)).join('') || '<li class="muted small">No beats in this phase yet.</li>'}</ol>`}
-      ${p && !closed ? `<button class="btn small" data-arc="add-beat" data-phase="${p.id}">+ Add a beat to ${esc(p.name || `Phase ${i + 1}`)}</button>` : ''}
+      ${p && !closed && !hide ? `<button class="btn small" data-arc="add-beat" data-phase="${p.id}">+ Add a beat to ${esc(p.name || `Phase ${i + 1}`)}</button>` : ''}
     </section>`;
   };
   return `${loose.length ? group(null, loose, -1) : ''}${ph.map((p, i) => group(p, all.filter(b => b.phase === p.id), i)).join('')}
     <button class="btn small ghost" data-arc="add-phase">+ Add a phase</button>`;
 }
 const beatOpen = new Set();
-const phaseShow = new Set(); // completed phases whose beats you've opened up again // which beats have their read-aloud and notes open
+// which beats have their read-aloud and notes open
 const readBtn = (p, b) => (String(b.read || '').trim() ? `<button class="btn small" data-arc="read" data-pc-arc="${p.id}" data-id="${b.id}">Read</button>` : '');
 
 // A beat's read-aloud, big and easy to read off the tablet at the table. Only you see it.
@@ -2550,13 +2551,17 @@ $('#view').addEventListener('click', async e => {
       if (act === 'phase-done') {
         const left = (a.beats || []).filter(x => x.phase === p.id && !x.repeat && !x.done).length;
         if (left && !(await confirmBox(`Mark ${p.name || 'this phase'} complete?`, `${left} beat${left > 1 ? 's' : ''} in it ${left > 1 ? "aren't" : "isn't"} done. ${left > 1 ? 'They stay' : 'It stays'} in the arc, but won't come up as next.`, 'Mark complete'))) return;
-        p.done = { s: beatSession(), at: Date.now() }; phaseShow.delete(p.id);
+        p.done = { s: beatSession(), at: Date.now() }; delete p.min;
         if (a.status === 'not') a.status = 'active';
         toast(`${p.name || 'Phase'} complete.`);
-      } else p.done = null;
+      } else { p.done = null; delete p.min; }
       break;
     }
-    case 'phase-show': { const id = b.dataset.id; phaseShow.has(id) ? phaseShow.delete(id) : phaseShow.add(id); render(); return; }
+    case 'phase-fold': {
+      const p = phasesOf(a).find(x => x.id === b.dataset.id);
+      if (p) p.min = !(p.min ?? !!p.done); else a.looseMin = !a.looseMin;
+      break;
+    }
     case 'phase-up': case 'phase-down': {
       const ph = phasesOf(a), i = ph.findIndex(p => p.id === b.dataset.id), j = i + (act === 'phase-up' ? -1 : 1);
       if (i < 0 || j < 0 || j >= ph.length) return; [ph[i], ph[j]] = [ph[j], ph[i]]; break;
