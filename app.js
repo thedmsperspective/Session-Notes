@@ -2359,9 +2359,15 @@ const ARC_STATUS = { not: 'Not started', active: 'In progress', done: 'Complete'
 const arcsOf = pc => (pc.arcs ||= []);
 const curArc = pc => arcsOf(pc).find(a => a.status !== 'done') || null;
 const lastArc = pc => curArc(pc) || arcsOf(pc).at(-1) || null;
-const oneTime = a => (a.beats || []).filter(b => !b.repeat);
+// Phases group an arc's beats (Phase 1, Phase 2…). Beats not in a phase come first.
+const phasesOf = a => a.phases || [];
+const phaseOf = (a, b) => phasesOf(a).find(p => p.id === b.phase) || null;
+const phaseIx = (a, b) => { const i = phasesOf(a).findIndex(p => p.id === b.phase); return i < 0 ? -1 : i; };
+const ordered = a => (a.beats || []).map((b, i) => ({ b, i })).sort((x, y) => phaseIx(a, x.b) - phaseIx(a, y.b) || x.i - y.i).map(x => x.b);
+const oneTime = a => ordered(a).filter(b => !b.repeat);
 const arcProgress = a => ({ done: oneTime(a).filter(b => b.done).length, all: oneTime(a).length });
 const nextBeat = a => oneTime(a).find(b => !b.done) || null;
+const phaseTag = (a, b) => { const p = phaseOf(a, b); return p ? `<span class="phase-tag">${esc(p.name || 'Phase')}</span> ` : ''; };
 const sessName = id => { const s = state.sessions.find(x => x.id === id); return s ? `session ${s.number}` : 'an earlier session'; };
 const arcStatusTag = a => `<span class="pill arc-${a ? a.status : 'none'}">${a ? ARC_STATUS[a.status] : 'No arc yet'}</span>`;
 // The session a beat happens in: the one in progress, else the latest
@@ -2404,6 +2410,7 @@ function arcDetail(pc) {
           : b.done ? `<span class="small">✓ Done in ${esc(sessName(b.done.s))}</span><button class="btn small ghost" data-arc="undone" data-id="${b.id}">Not done</button>`
           : `<button class="btn small" data-arc="done" data-id="${b.id}">Done</button>`}
         ${String(b.read || '').trim() ? `<button class="btn small" data-arc="read" data-id="${b.id}">Read</button>` : ''}
+        ${phasesOf(a).length ? `<label class="small beat-phase">Phase <select data-beat-phase="${b.id}"><option value="">None</option>${phasesOf(a).map(p => `<option value="${p.id}" ${b.phase === p.id ? 'selected' : ''}>${esc(p.name || 'Phase')}</option>`).join('')}</select></label>` : ''}
         <span class="row-btns"><button class="icon-btn" data-arc="up" data-id="${b.id}" aria-label="Move up">↑</button><button class="icon-btn" data-arc="down" data-id="${b.id}" aria-label="Move down">↓</button><button class="icon-btn" data-arc="del-beat" data-id="${b.id}" aria-label="Remove this beat">✕</button></span>
       </span>
       <details class="beat-more" data-beat-more="${b.id}" ${beatOpen.has(b.id) ? 'open' : ''}><summary>Read-aloud and DM notes${[b.read, b.dm].some(x => String(x || '').trim()) ? ` <span class="muted small">(${[String(b.read || '').trim() && 'read-aloud', String(b.dm || '').trim() && 'notes'].filter(Boolean).join(', ')})</span>` : ''}</summary>
@@ -2421,8 +2428,7 @@ function arcDetail(pc) {
           <label class="field"><span>Status</span><select data-arcf="status">${Object.entries(ARC_STATUS).map(([k, n]) => `<option value="${k}" ${a.status === k ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
           <label class="field"><span>What it's about, and where it's heading</span><textarea class="grow" rows="3" data-arcf="summary">${esc(a.summary || '')}</textarea></label>
           <h3>Beats ${(() => { const p = arcProgress(a); return p.all ? `<span class="muted small">${p.done} of ${p.all} done</span>` : ''; })()}</h3>
-          <ol class="beats">${(a.beats || []).map(beatRow).join('') || '<li class="muted">No beats yet: add the steps you have in mind.</li>'}</ol>
-          <button class="btn small" data-arc="add-beat">+ Add a beat</button>
+          ${beatsHTML(a, beatRow)}
           ${others.length ? `<h3>Also involved</h3><p class="muted small">Other characters with a part to play. It stays ${esc(pc.name)}'s story.</p><div class="chips">${others.map(o => `<label class="chip"><input type="checkbox" data-arc-inv="${o.id}" ${(a.involved || []).includes(o.id) ? 'checked' : ''}> ${esc(o.name)}</label>`).join('')}</div>` : ''}
           <label class="field"><span>Notes (secrets, ideas, what's been foreshadowed)</span><textarea class="grow" rows="3" data-arcf="notes">${esc(a.notes || '')}</textarea></label>
           <div class="row"><span class="push"></span><button class="btn small danger" data-arc="del-arc">Delete this arc</button></div>`
@@ -2433,11 +2439,33 @@ function arcDetail(pc) {
         ${block('Backstory', story.backstory)}${block('Player goals for the character', story.goalsPlayer)}${block('Character goals', story.goalsChar)}
         ${story.backstory || story.goalsPlayer || story.goalsChar ? '' : `<p class="muted small">Nothing yet. These come from the Character tab of ${esc(pc.name)}'s sheet in the Character Sheet app (Backstory, Player goals, Character goals), once it's synced.</p>`}
         ${involvedIn(pc).length ? `<h3>Involved in</h3><ul>${involvedIn(pc).map(x => `<li><a href="#" data-arc="open" data-id="${x.o.id}">${esc(x.o.name)}'s arc${x.a.title ? `: ${esc(x.a.title)}` : ''}</a></li>`).join('')}</ul>` : ''}
-        ${past.length ? `<h3>Finished arcs</h3>${past.slice().reverse().map(x => `<details class="arc-past"><summary>${esc(x.title || 'Untitled arc')}</summary>${x.summary ? txt(x.summary) : ''}<ol>${(x.beats || []).map(b => `<li>${esc(b.text || '')}${b.done ? ` <span class="muted small">(${esc(sessName(b.done.s))})</span>` : ''}${b.repeat ? ` <span class="muted small">(used ${(b.used || []).length}×)</span>` : ''}</li>`).join('')}</ol>${x.notes ? txt(x.notes) : ''}</details>`).join('')}` : ''}
+        ${past.length ? `<h3>Finished arcs</h3>${past.slice().reverse().map(x => `<details class="arc-past"><summary>${esc(x.title || 'Untitled arc')}</summary>${x.summary ? txt(x.summary) : ''}<ol>${ordered(x).map(b => `<li>${phaseTag(x, b)}${esc(b.text || '')}${b.done ? ` <span class="muted small">(${esc(sessName(b.done.s))})</span>` : ''}${b.repeat ? ` <span class="muted small">(used ${(b.used || []).length}×)</span>` : ''}</li>`).join('')}</ol>${x.notes ? txt(x.notes) : ''}</details>`).join('')}` : ''}
       </aside>
     </div></article>`;
 }
 
+// The beats, grouped by phase when the arc has phases
+function beatsHTML(a, beatRow) {
+  const all = ordered(a), ph = phasesOf(a);
+  if (!ph.length) return `<ol class="beats">${all.map(beatRow).join('') || '<li class="muted">No beats yet: add the steps you have in mind.</li>'}</ol>
+    <div class="row-btns"><button class="btn small" data-arc="add-beat">+ Add a beat</button><button class="btn small ghost" data-arc="add-phase">+ Group beats into phases</button></div>`;
+  let n = 0;
+  const loose = all.filter(b => !phaseOf(a, b));
+  const group = (p, list, i) => {
+    const one = list.filter(b => !b.repeat), done = one.filter(b => b.done).length;
+    return `<section class="phase ${one.length && done === one.length ? 'phase-done' : ''}">
+      <div class="phase-head">${p
+        ? `<input class="phase-name" data-phase-name="${p.id}" value="${esc(p.name || '')}" placeholder="Phase ${i + 1}" aria-label="Phase name" autocomplete="off">
+           <span class="muted small">${one.length ? `${done} of ${one.length} done` : ''}</span>
+           <span class="row-btns"><button class="icon-btn" data-arc="phase-up" data-id="${p.id}" aria-label="Move phase up" ${i ? '' : 'disabled'}>↑</button><button class="icon-btn" data-arc="phase-down" data-id="${p.id}" aria-label="Move phase down" ${i < ph.length - 1 ? '' : 'disabled'}>↓</button><button class="icon-btn" data-arc="del-phase" data-id="${p.id}" aria-label="Remove this phase">✕</button></span>`
+        : '<b class="phase-loose">Not in a phase</b>'}</div>
+      <ol class="beats" start="${n + 1}">${list.map(b => beatRow(b, n++)).join('') || '<li class="muted small">No beats in this phase yet.</li>'}</ol>
+      ${p ? `<button class="btn small" data-arc="add-beat" data-phase="${p.id}">+ Add a beat to ${esc(p.name || `Phase ${i + 1}`)}</button>` : ''}
+    </section>`;
+  };
+  return `${loose.length ? group(null, loose, -1) : ''}${ph.map((p, i) => group(p, all.filter(b => b.phase === p.id), i)).join('')}
+    <button class="btn small ghost" data-arc="add-phase">+ Add a phase</button>`;
+}
 const beatOpen = new Set(); // which beats have their read-aloud and notes open
 const readBtn = (p, b) => (String(b.read || '').trim() ? `<button class="btn small" data-arc="read" data-pc-arc="${p.id}" data-id="${b.id}">Read</button>` : '');
 
@@ -2476,7 +2504,7 @@ function arcReminder() {
     <ul class="arc-remind">${list.map(({ p, a }) => {
       const nb = nextBeat(a), reps = (a.beats || []).filter(b => b.repeat);
       return `<li><b>${esc(p.name)}</b>${a.title ? ` · ${esc(a.title)}` : ''}
-        ${nb ? `<div class="arc-next"><span>Next: ${esc(nb.text || 'Untitled beat')}</span><span class="row-btns">${readBtn(p, nb)}<button class="btn small" data-arc="done" data-pc-arc="${p.id}" data-id="${nb.id}">Done</button></span></div>` : '<div class="muted small">No beats left to tick off.</div>'}
+        ${nb ? `<div class="arc-next"><span>Next: ${phaseTag(a, nb)}${esc(nb.text || 'Untitled beat')}</span><span class="row-btns">${readBtn(p, nb)}<button class="btn small" data-arc="done" data-pc-arc="${p.id}" data-id="${nb.id}">Done</button></span></div>` : '<div class="muted small">No beats left to tick off.</div>'}
         ${reps.map(b => `<div class="arc-next"><span class="muted">Any time: ${esc(b.text || 'Untitled beat')}${(b.used || []).length ? ` (used ${(b.used || []).length}×)` : ''}</span><span class="row-btns">${readBtn(p, b)}<button class="btn small ghost" data-arc="use" data-pc-arc="${p.id}" data-id="${b.id}">Used again</button></span></div>`).join('')}
       </li>`;
     }).join('')}</ul><p class="small"><a href="#" data-arc="goto">All arcs</a></p></section>`;
@@ -2500,9 +2528,33 @@ $('#view').addEventListener('click', async e => {
   if (act === 'read') { if (beat) readAloud(pc, a, beat); return; }
   switch (act) {
     case 'new': arcsOf(pc).push({ id: uid(), title: '', status: 'not', summary: '', beats: [], involved: [], notes: '', createdAt: Date.now() }); break;
-    case 'add-beat': if (!a) return; (a.beats ||= []).push({ id: uid(), text: '', repeat: false }); break;
+    case 'add-beat': if (!a) return; (a.beats ||= []).push({ id: uid(), text: '', repeat: false, phase: b.dataset.phase || '' }); break;
+    case 'add-phase': {
+      if (!a) return;
+      const first = !phasesOf(a).length, p = { id: uid(), name: `Phase ${phasesOf(a).length + 1}` };
+      (a.phases ||= []).push(p);
+      if (first) for (const x of a.beats || []) x.phase = p.id; // the beats you already have start in Phase 1
+      break;
+    }
+    case 'phase-up': case 'phase-down': {
+      const ph = phasesOf(a), i = ph.findIndex(p => p.id === b.dataset.id), j = i + (act === 'phase-up' ? -1 : 1);
+      if (i < 0 || j < 0 || j >= ph.length) return; [ph[i], ph[j]] = [ph[j], ph[i]]; break;
+    }
+    case 'del-phase': {
+      const p = phasesOf(a).find(x => x.id === b.dataset.id); if (!p) return;
+      const inIt = (a.beats || []).filter(x => x.phase === p.id);
+      if (!(await confirmBox(`Remove ${p.name || 'this phase'}?`, inIt.length ? `Its ${inIt.length} beat${inIt.length > 1 ? 's stay' : ' stays'} in the arc, without a phase.` : 'It has no beats.', 'Remove'))) return;
+      inIt.forEach(x => { x.phase = ''; });
+      a.phases = a.phases.filter(x => x !== p); break;
+    }
     case 'del-beat': if (!beat) return; if (beat.text && !(await confirmBox('Remove this beat?', beat.text, 'Remove'))) return; a.beats = a.beats.filter(x => x !== beat); break;
-    case 'up': case 'down': { if (!beat) return; const i = a.beats.indexOf(beat), j = i + (act === 'up' ? -1 : 1); if (j < 0 || j >= a.beats.length) return; [a.beats[i], a.beats[j]] = [a.beats[j], a.beats[i]]; break; }
+    case 'up': case 'down': {
+      // move within its phase
+      if (!beat) return;
+      const same = ordered(a).filter(x => (phaseOf(a, x)?.id || '') === (phaseOf(a, beat)?.id || ''));
+      const k = same.indexOf(beat), other = same[k + (act === 'up' ? -1 : 1)]; if (!other) return;
+      const i = a.beats.indexOf(beat), j = a.beats.indexOf(other); [a.beats[i], a.beats[j]] = [a.beats[j], a.beats[i]]; break;
+    }
     case 'done': if (!beat) return; beat.done = { s: beatSession(), at: Date.now() }; if (a.status === 'not') a.status = 'active'; toast(`${pc.name}'s arc: "${beat.text || 'beat'}" done.`); break;
     case 'undone': if (!beat) return; delete beat.done; break;
     case 'use': if (!beat) return; (beat.used ||= []).push({ s: beatSession(), at: Date.now() }); if (a.status === 'not') a.status = 'active'; toast(`${pc.name}'s arc: "${beat.text || 'beat'}" used.`); break;
@@ -2516,11 +2568,13 @@ $('#view').addEventListener('input', e => {
   const t = e.target, { pc, a } = arcCtx(t); if (!pc || !a) return;
   if (t.dataset.arcf && t.dataset.arcf !== 'status') { a[t.dataset.arcf] = t.value; saveSoon('pcs', pc); }
   if (t.dataset.beatText) { const b = a.beats.find(x => x.id === t.dataset.beatText); if (b) { b.text = t.value; saveSoon('pcs', pc); } }
+  if (t.dataset.phaseName) { const p = phasesOf(a).find(x => x.id === t.dataset.phaseName); if (p) { p.name = t.value; saveSoon('pcs', pc); } }
   if (t.dataset.beatRead || t.dataset.beatDm) { const b = a.beats.find(x => x.id === (t.dataset.beatRead || t.dataset.beatDm)); if (b) { b[t.dataset.beatRead ? 'read' : 'dm'] = t.value; saveSoon('pcs', pc, 1000); } }
 });
 $('#view').addEventListener('change', async e => {
   const t = e.target, { pc, a } = arcCtx(t); if (!pc || !a) return;
   if (t.dataset.arcf === 'status') { a.status = t.value; if (t.value === 'done') a.completedAt = Date.now(); await save('pcs', pc); render(); return; }
+  if (t.dataset.beatPhase !== undefined) { const b = a.beats.find(x => x.id === t.dataset.beatPhase); if (b) { b.phase = t.value; await save('pcs', pc); render(); } return; }
   if (t.dataset.beatRep) { const b = a.beats.find(x => x.id === t.dataset.beatRep); if (b) { b.repeat = t.checked; await save('pcs', pc); render(); } return; }
   if (t.dataset.arcInv) { const set = new Set(a.involved || []); if (t.checked) set.add(t.dataset.arcInv); else set.delete(t.dataset.arcInv); a.involved = [...set]; await save('pcs', pc); }
 });

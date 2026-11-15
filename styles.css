@@ -576,3 +576,11 @@ body.has-slidebar { padding-bottom: 110px; }
 .read-dm { margin-top: 12px; }
 .read-dm summary { cursor: pointer; color: var(--muted); }
 .read-foot { margin-top: 14px; flex-wrap: wrap; gap: 8px; }
+.phase { margin: 10px 0; padding: 10px; border: 1px dashed var(--line-strong); border-radius: 12px; }
+.phase-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-bottom: 4px; }
+.phase-name { flex: 1 1 160px; min-width: 0; font-family: var(--serif); font-weight: 700; font-size: 18px; }
+.phase-loose { font-family: var(--serif); font-size: 17px; }
+.phase-done .phase-name { color: var(--muted); }
+.phase-tag { display: inline-block; font-size: 12px; padding: 1px 7px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); color: var(--muted); vertical-align: 1px; }
+.beat-phase select { margin-left: 4px; }
+.phase-name { padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); }
