@@ -168,15 +168,18 @@ export async function syncNow({ interactive = false, quiet = false } = {}) {
         const remote = await download(file.id);
         if (remote?.app === 'session-notes') summary = await ctx.merge(remote);
         ss.remoteModified = file.modifiedTime;
+        ss.remoteHash = hashOf(remote); // what's actually in Drive now
       }
     } else {
       ss.fileId = null;
     }
     const local = await ctx.build();
     const h = hashOf(local);
-    if (!file || h !== ss.lastHash) {
+    // Upload when this device has changes, or when Drive's copy is missing something this device has
+    // (an older version of the app on another device can save the file without the newer parts, like slides)
+    if (!file || h !== ss.lastHash || h !== ss.remoteHash) {
       const res = await upload(local);
-      ss.fileId = res.id; ss.remoteModified = res.modifiedTime; ss.lastHash = h;
+      ss.fileId = res.id; ss.remoteModified = res.modifiedTime; ss.lastHash = h; ss.remoteHash = h;
     }
     // Character sheet stats (Max HP, AC, Passive Perception) for linked characters
     try {
