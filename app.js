@@ -2369,7 +2369,8 @@ const phasesOf = a => a.phases || [];
 const phaseOf = (a, b) => phasesOf(a).find(p => p.id === b.phase) || null;
 const phaseIx = (a, b) => { const i = phasesOf(a).findIndex(p => p.id === b.phase); return i < 0 ? -1 : i; };
 const ordered = a => (a.beats || []).map((b, i) => ({ b, i })).sort((x, y) => phaseIx(a, x.b) - phaseIx(a, y.b) || x.i - y.i).map(x => x.b);
-const oneTime = a => ordered(a).filter(b => !b.repeat);
+const phaseClosed = (a, b) => !!phaseOf(a, b)?.done; // its phase is marked complete
+const oneTime = a => ordered(a).filter(b => !b.repeat && (b.done || !phaseClosed(a, b)));
 const arcProgress = a => ({ done: oneTime(a).filter(b => b.done).length, all: oneTime(a).length });
 const nextBeat = a => oneTime(a).find(b => !b.done) || null;
 const phaseTag = (a, b) => { const p = phaseOf(a, b); return p ? `<span class="phase-tag">${esc(p.name || 'Phase')}</span> ` : ''; };
@@ -2457,21 +2458,24 @@ function beatsHTML(a, beatRow) {
   let n = 0;
   const loose = all.filter(b => !phaseOf(a, b));
   const group = (p, list, i) => {
-    const one = list.filter(b => !b.repeat), done = one.filter(b => b.done).length;
-    return `<section class="phase ${one.length && done === one.length ? 'phase-done' : ''}">
+    const one = list.filter(b => !b.repeat), done = one.filter(b => b.done).length, closed = !!p?.done;
+    const hide = closed && !phaseShow.has(p.id);
+    return `<section class="phase ${closed || (one.length && done === one.length) ? 'phase-done' : ''}">
       <div class="phase-head">${p
         ? `<input class="phase-name" data-phase-name="${p.id}" value="${esc(p.name || '')}" placeholder="Phase ${i + 1}" aria-label="Phase name" autocomplete="off">
-           <span class="muted small">${one.length ? `${done} of ${one.length} done` : ''}</span>
+           <span class="muted small">${closed ? `<span class="pill arc-done">Complete</span> ${esc(sessName(p.done.s))}${one.length ? ` · ${done} of ${one.length} beats done` : ''}` : one.length ? `${done} of ${one.length} done` : ''}</span>
+           ${closed ? `<button class="btn small ghost" data-arc="phase-open" data-id="${p.id}">Reopen</button><button class="btn small ghost" data-arc="phase-show" data-id="${p.id}">${hide ? 'Show beats' : 'Hide beats'}</button>` : `<button class="btn small" data-arc="phase-done" data-id="${p.id}">Mark complete</button>`}
            <span class="row-btns"><button class="icon-btn" data-arc="phase-up" data-id="${p.id}" aria-label="Move phase up" ${i ? '' : 'disabled'}>↑</button><button class="icon-btn" data-arc="phase-down" data-id="${p.id}" aria-label="Move phase down" ${i < ph.length - 1 ? '' : 'disabled'}>↓</button><button class="icon-btn" data-arc="del-phase" data-id="${p.id}" aria-label="Remove this phase">✕</button></span>`
         : '<b class="phase-loose">Not in a phase</b>'}</div>
-      <ol class="beats" start="${n + 1}">${list.map(b => beatRow(b, n++)).join('') || '<li class="muted small">No beats in this phase yet.</li>'}</ol>
-      ${p ? `<button class="btn small" data-arc="add-beat" data-phase="${p.id}">+ Add a beat to ${esc(p.name || `Phase ${i + 1}`)}</button>` : ''}
+      ${hide ? (n += list.length, '') : `<ol class="beats" start="${n + 1}">${list.map(b => beatRow(b, n++)).join('') || '<li class="muted small">No beats in this phase yet.</li>'}</ol>`}
+      ${p && !closed ? `<button class="btn small" data-arc="add-beat" data-phase="${p.id}">+ Add a beat to ${esc(p.name || `Phase ${i + 1}`)}</button>` : ''}
     </section>`;
   };
   return `${loose.length ? group(null, loose, -1) : ''}${ph.map((p, i) => group(p, all.filter(b => b.phase === p.id), i)).join('')}
     <button class="btn small ghost" data-arc="add-phase">+ Add a phase</button>`;
 }
-const beatOpen = new Set(); // which beats have their read-aloud and notes open
+const beatOpen = new Set();
+const phaseShow = new Set(); // completed phases whose beats you've opened up again // which beats have their read-aloud and notes open
 const readBtn = (p, b) => (String(b.read || '').trim() ? `<button class="btn small" data-arc="read" data-pc-arc="${p.id}" data-id="${b.id}">Read</button>` : '');
 
 // A beat's read-aloud, big and easy to read off the tablet at the table. Only you see it.
@@ -2510,7 +2514,7 @@ function arcReminder() {
       const nb = nextBeat(a), reps = (a.beats || []).filter(b => b.repeat);
       return `<li><b>${esc(p.name)}</b>${a.title ? ` · ${esc(a.title)}` : ''}
         ${nb ? `<div class="arc-next"><span>Next: ${phaseTag(a, nb)}${esc(nb.text || 'Untitled beat')}</span><span class="row-btns">${readBtn(p, nb)}<button class="btn small" data-arc="done" data-pc-arc="${p.id}" data-id="${nb.id}">Done</button></span></div>` : '<div class="muted small">No beats left to tick off.</div>'}
-        ${reps.map(b => `<div class="arc-next"><span class="muted">Any time: ${esc(b.text || 'Untitled beat')}${(b.used || []).length ? ` (used ${(b.used || []).length}×)` : ''}</span><span class="row-btns">${readBtn(p, b)}<button class="btn small ghost" data-arc="use" data-pc-arc="${p.id}" data-id="${b.id}">Used again</button></span></div>`).join('')}
+        ${reps.filter(b => !phaseClosed(a, b)).map(b => `<div class="arc-next"><span class="muted">Any time: ${esc(b.text || 'Untitled beat')}${(b.used || []).length ? ` (used ${(b.used || []).length}×)` : ''}</span><span class="row-btns">${readBtn(p, b)}<button class="btn small ghost" data-arc="use" data-pc-arc="${p.id}" data-id="${b.id}">Used again</button></span></div>`).join('')}
       </li>`;
     }).join('')}</ul><p class="small"><a href="#" data-arc="goto">All arcs</a></p></section>`;
 }
@@ -2541,6 +2545,18 @@ $('#view').addEventListener('click', async e => {
       if (first) for (const x of a.beats || []) x.phase = p.id; // the beats you already have start in Phase 1
       break;
     }
+    case 'phase-done': case 'phase-open': {
+      const p = phasesOf(a).find(x => x.id === b.dataset.id); if (!p) return;
+      if (act === 'phase-done') {
+        const left = (a.beats || []).filter(x => x.phase === p.id && !x.repeat && !x.done).length;
+        if (left && !(await confirmBox(`Mark ${p.name || 'this phase'} complete?`, `${left} beat${left > 1 ? 's' : ''} in it ${left > 1 ? "aren't" : "isn't"} done. ${left > 1 ? 'They stay' : 'It stays'} in the arc, but won't come up as next.`, 'Mark complete'))) return;
+        p.done = { s: beatSession(), at: Date.now() }; phaseShow.delete(p.id);
+        if (a.status === 'not') a.status = 'active';
+        toast(`${p.name || 'Phase'} complete.`);
+      } else p.done = null;
+      break;
+    }
+    case 'phase-show': { const id = b.dataset.id; phaseShow.has(id) ? phaseShow.delete(id) : phaseShow.add(id); render(); return; }
     case 'phase-up': case 'phase-down': {
       const ph = phasesOf(a), i = ph.findIndex(p => p.id === b.dataset.id), j = i + (act === 'phase-up' ? -1 : 1);
       if (i < 0 || j < 0 || j >= ph.length) return; [ph[i], ph[j]] = [ph[j], ph[i]]; break;
