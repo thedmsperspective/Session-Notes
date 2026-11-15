@@ -418,6 +418,9 @@ function render() {
   applyCalendar();
   renderHeader();
   const v = $('#view');
+  // Keep your place: hold the page's height while it's rebuilt, then put the scroll back where it was
+  const y = window.scrollY;
+  v.style.minHeight = `${v.offsetHeight}px`;
   if (state.view === 'session') v.innerHTML = holidayBanner() + viewSession();
   if (state.view === 'party') v.innerHTML = viewParty();
   if (state.view === 'calendar') v.innerHTML = holidayBanner() + viewCalendar();
@@ -426,6 +429,8 @@ function render() {
   if (state.view === 'slides') v.innerHTML = viewSlides();
   if (state.view === 'world') v.innerHTML = viewWorld();
   afterRender();
+  v.style.minHeight = '';
+  if (Math.abs(window.scrollY - y) > 1) window.scrollTo(0, y);
 }
 
 function afterRender() {
@@ -2528,7 +2533,7 @@ $('#view').addEventListener('click', async e => {
   if (act === 'read') { if (beat) readAloud(pc, a, beat); return; }
   switch (act) {
     case 'new': arcsOf(pc).push({ id: uid(), title: '', status: 'not', summary: '', beats: [], involved: [], notes: '', createdAt: Date.now() }); break;
-    case 'add-beat': if (!a) return; (a.beats ||= []).push({ id: uid(), text: '', repeat: false, phase: b.dataset.phase || '' }); break;
+    case 'add-beat': { if (!a) return; const nb = { id: uid(), text: '', repeat: false, phase: b.dataset.phase || '' }; (a.beats ||= []).push(nb); await save('pcs', pc); render(); document.querySelector(`[data-beat-text="${nb.id}"]`)?.focus({ preventScroll: true }); return; }
     case 'add-phase': {
       if (!a) return;
       const first = !phasesOf(a).length, p = { id: uid(), name: `Phase ${phasesOf(a).length + 1}` };
