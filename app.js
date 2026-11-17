@@ -15,7 +15,7 @@ const fmtReal = iso => { if (!iso) return ''; const [y, m, d] = iso.split('-').m
 const fold = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 const state = {
-  campaigns: [], pcs: [], sessions: [], ink: [], locations: [], weather: [], diseases: [], cases: [], outbreaks: [], training: [], trades: [], cards: [], slides: [],
+  campaigns: [], pcs: [], sessions: [], ink: [], locations: [], weather: [], diseases: [], cases: [], outbreaks: [], training: [], trades: [], cards: [], slides: [], loot: [],
   campaignId: null, view: 'session', sessionId: null, calMonth: null, calDay: null, query: '',
 };
 
@@ -278,7 +278,7 @@ async function save(store, rec) {
   const i = list.findIndex(r => r.id === rec.id);
   if (i >= 0) list[i] = rec; else list.push(rec);
   await db.put(store, rec);
-  if (store === 'pcs' || store === 'cases' || store === 'diseases' || store === 'slides') publishSoon();
+  if (store === 'pcs' || store === 'cases' || store === 'diseases' || store === 'slides' || store === 'loot') publishSoon();
   if (store === 'campaigns') campaignsChanged();
   return rec;
 }
@@ -427,6 +427,7 @@ function render() {
   if (state.view === 'history') v.innerHTML = viewHistory();
   if (state.view === 'arcs') v.innerHTML = viewArcs();
   if (state.view === 'slides') v.innerHTML = viewSlides();
+  if (state.view === 'loot') v.innerHTML = viewLoot();
   if (state.view === 'world') v.innerHTML = viewWorld();
   afterRender();
   v.style.minHeight = '';
@@ -837,12 +838,15 @@ function viewParty() {
     if (!ch) return '<span class="badge">Linked, sheet not found yet</span>';
     return `<span class="badge on-sheet">Linked to ${esc(ch.name || 'their sheet')}'s sheet${ch.liveKey ? ' · live' : ''}</span>`;
   };
+  // Table Rules: players level up only when you allow it (one level each time)
+  const lockOn = core?.tableSettings?.().levelLock === 'on';
   const card = p => {
     const deaths = p.deaths.slice().sort((a, b) => a.at - b.at);
     return `<article class="card pc-card ${p.active === false ? 'retired' : ''}" data-pc="${p.id}">
       <div class="pc-top">
         <div><h2>${esc(p.name)}</h2><p class="muted">${esc([p.ancestry, p.classes].filter(Boolean).join(' · ') || 'No details yet')}${p.player ? ` · played by ${esc(p.player)}` : ''}</p>${linkTag(p)}</div>
         <div class="pc-btns">
+          ${lockOn ? `<button class="btn small ${p.levelOk ? '' : 'primary'}" data-act="allow-level" title="Their sheet's Level up unlocks for one level">${p.levelOk ? '✓ Level up allowed · again' : 'Allow level up'}</button>` : ''}
           <button class="btn small" data-act="edit-pc">Edit</button>
           <button class="btn small" data-act="toggle-active">${p.active === false ? 'Bring back' : 'Retire'}</button>
         </div>
@@ -870,7 +874,7 @@ function viewParty() {
     </article>`;
   };
   const active = pcs.filter(p => p.active !== false), retired = pcs.filter(p => p.active === false);
-  return `<div class="view-head"><h1>Party</h1><button class="btn primary" data-act="add-pc">Add a character</button></div>
+  return `<div class="view-head"><h1>Party</h1>${lockOn && active.length ? '<button class="btn" data-act="allow-level-all">Allow level up: everyone</button>' : ''}<button class="btn primary" data-act="add-pc">Add a character</button></div>
     <p class="muted shared-note">The party comes from this campaign's characters in the Character Sheet app, and every app uses the same characters. What you track here (deaths, Favor of Fate, diseases, survival) shows on their sheets right away.</p>
     ${active.map(card).join('') || '<p class="muted">No active characters.</p>'}
     ${retired.length ? `<details class="retired-list"><summary>Retired or departed (${retired.length})</summary>${retired.map(card).join('')}</details>` : ''}`;
@@ -1045,6 +1049,17 @@ function confirmBox(title, body, yes) {
     dlg.returnValue = '';
     dlg.addEventListener('close', () => res(dlg.returnValue === 'yes'), { once: true });
     dlg.showModal();
+  });
+}
+
+// Ask for a short bit of text (null if cancelled)
+function promptBox(title, value, note = '') {
+  return new Promise(res => {
+    const d = document.createElement('dialog'); d.className = 'dlg-wrap';
+    d.innerHTML = `<form method="dialog" class="dlg"><h2>${esc(title)}</h2>${note ? `<p class="muted small">${esc(note)}</p>` : ''}<input name="v" value="${esc(value || '')}" autocomplete="off" style="width:100%"><div class="row"><button class="btn" value="cancel" formnovalidate>Cancel</button><button class="btn primary" value="ok">Save</button></div></form>`;
+    document.body.append(d);
+    d.addEventListener('close', () => { res(d.returnValue === 'ok' ? d.querySelector('[name=v]').value : null); d.remove(); }, { once: true });
+    d.showModal(); d.querySelector('[name=v]').select();
   });
 }
 
@@ -1624,6 +1639,13 @@ $('#view').addEventListener('click', async e => {
     case 'edit-pc': openPc(pc); return;
     case 'add-pc': openPc(null); return;
     case 'toggle-active': pc.active = pc.active === false; await save('pcs', pc); break;
+    // Table Rules "When I allow it": their sheet's Level up unlocks for one level, with a banner
+    case 'allow-level': pc.levelOk = Date.now(); await save('pcs', pc); toast(`${pc.name} can level up. Their sheet shows a banner.`); break;
+    case 'allow-level-all': {
+      const list = livePcs().filter(p => p.active !== false);
+      for (const p of list) { p.levelOk = Date.now(); await save('pcs', p); }
+      toast(`Everyone can level up (${list.length}). Their sheets show a banner.`); break;
+    }
     case 'new-ink': {
       const page = { id: uid(), sessionId: s.id, strokes: [], createdAt: Date.now() };
       await save('ink', page); s.inkIds = [...(s.inkIds || []), page.id]; await save('sessions', s);
@@ -2195,7 +2217,7 @@ async function publishSheets() {
   const [V, L] = await Promise.all([core.views?.(), core.live?.()]);
   if (!V || !L) return;
   const keys = new Map(core.cachedParty().filter(c => c.liveKey).map(c => [c.id, c.liveKey]));
-  const sn = { diseases: state.diseases, cases: state.cases };
+  const sn = { diseases: state.diseases, cases: state.cases, loot: state.loot };
   for (const pc of state.pcs) {
     if (pc.deleted || !pc.charId || !keys.has(pc.charId)) continue;
     const view = V.snView(sn, pc), k = JSON.stringify(view);
@@ -2796,3 +2818,170 @@ $('#view').addEventListener('change', async e => {
 });
 // keep a beat's read-aloud and notes open while you work on the arc
 $('#view').addEventListener('toggle', e => { const id = e.target.dataset?.beatMore; if (id) (e.target.open ? beatOpen.add(id) : beatOpen.delete(id)); }, true);
+
+/* ---------- Loot: everything the party picks up (not magic items: those go through the Magic Items app) ----------
+   One master list. Each find has a true value only you see. Give it to a character and it lands on their sheet
+   (equipment in its own section, anything else in Treasure), with no value shown. Reveal value tells them an
+   appraisal, which can be less than the truth; when they try to sell it, your Shops offer request shows both.
+   Coins go straight into purses, to one character or split evenly. A name that's on the Character Sheet's equipment
+   list fills in from there. */
+const liveLoot = () => state.loot.filter(l => !l.deleted && l.campaignId === state.campaignId).sort((a, b) => (!!a.given - !!b.given) || (b.createdAt || 0) - (a.createdAt || 0));
+const COIN_KEYS = ['pp', 'gp', 'ep', 'sp', 'cp'];
+const coinText = c => COIN_KEYS.filter(k => Number(c?.[k])).map(k => `${Number(c[k]).toLocaleString()} ${k}`).join(', ') || 'no coins';
+let EQUIP = null; // the Character Sheet's equipment list: its SRD items and your own
+async function loadEquip() {
+  if (EQUIP) return EQUIP;
+  const map = new Map();
+  try { const d = await (await fetch('/Char-Sheet/data/srd.json')).json(); for (const e of d.entries || []) if (e.type === 'item') map.set(e.name.toLowerCase(), e); } catch { /* offline */ }
+  try {
+    if (!indexedDB.databases || (await indexedDB.databases()).some(x => x.name === 'charsheet')) {
+      const lib = await new Promise(res => {
+        const r = indexedDB.open('charsheet');
+        r.onupgradeneeded = () => { r.transaction.abort(); res(null); };
+        r.onerror = () => res(null);
+        r.onsuccess = () => { const db = r.result; if (!db.objectStoreNames.contains('meta')) { db.close(); return res(null); } const g = db.transaction('meta').objectStore('meta').get('library'); g.onsuccess = () => { db.close(); res(g.result || null); }; g.onerror = () => { db.close(); res(null); }; };
+      });
+      for (const [id, e] of Object.entries(lib?.entries || {})) if (e?.type === 'item' && !lib.deleted?.[id]) map.set(String(e.name).toLowerCase(), { ...(map.get(String(e.name).toLowerCase()) || {}), ...e, id });
+    }
+  } catch { /* no Character Sheet on this device */ }
+  EQUIP = map;
+  return map;
+}
+// Where a Library item lands on a sheet
+const USED_UP = /^(alchemist'?s fire|acid|antitoxin|holy water|oil|torch|rations?|healer'?s kit|poison|basic poison|candle|caltrops|ball bearings|potion)\b/i;
+function eqSection(e) {
+  if (e.invCat === 'consumables' || (!e.invCat && USED_UP.test(e.name))) return 'consumables';
+  if (e.invCat) return ['tools', 'components', 'general'].includes(e.invCat) ? 'gear' : e.invCat;
+  return e.cat === 'armor' ? 'armor' : e.cat === 'weapon' ? 'weapons' : 'gear';
+}
+const SEC_NAME = { armor: 'Armor', weapons: 'Weapons', treasure: 'Treasure', gear: 'Gear', consumables: 'Consumables' };
+
+function viewLoot() {
+  const all = liveLoot(), places = [...new Set(all.map(l => l.place).filter(Boolean))].sort();
+  const f = state.lootPlace || '', show = state.lootShow || 'open';
+  const list = all.filter(l => (!f || l.place === f) && (show === 'all' || (show === 'open' ? !l.given : !!l.given)));
+  const pcs = livePcs().filter(p => p.active !== false);
+  const who = id => state.pcs.find(p => p.id === id)?.name || 'someone';
+  const giveSel = l => `<select class="sm-select" data-lootto="${l.id}" aria-label="Give to"><option value="">Give to…</option>${pcs.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}${l.kind === 'coins' && pcs.length > 1 ? '<option value="split">Split evenly</option>' : ''}</select>`;
+  const card = l => {
+    const given = l.given ? `<span class="pill arc-done">${l.kind === 'coins' && l.given.to === 'split' ? 'Split evenly' : `Given to ${esc(who(l.given.to))}`} · ${new Date(l.given.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>` : '';
+    if (l.kind === 'coins') return `<li class="loot coins" data-loot="${l.id}"><div class="loot-main"><b>🪙 ${esc(coinText(l.coins))}</b>${l.place ? ` <span class="muted small">· ${esc(l.place)}</span>` : ''} ${given}</div>
+      <div class="row-btns">${l.given ? '' : giveSel(l)}<button class="icon-btn" data-lt="del" aria-label="Remove">✕</button></div></li>`;
+    return `<li class="loot" data-loot="${l.id}"><div class="loot-main"><b>${esc(l.name || 'Something')}</b>${Number(l.qty) > 1 ? ` ×${Number(l.qty)}` : ''}
+        <span class="muted small">· ${SEC_NAME[l.sec] || 'Treasure'}${l.wt ? ` · ${l.wt} lb` : ''}${l.place ? ` · ${esc(l.place)}` : ''}${l.eqId ? ' · from the equipment list' : ''}</span> ${given}
+        <div class="small">True value: <b>${esc(l.value || 'not set')}</b>${l.shown ? ` · They were told <b>${esc(l.shown)}</b>` : ' · Value hidden from them'}</div>
+        ${l.desc ? `<div class="small muted">${esc(l.desc)}</div>` : ''}</div>
+      <div class="row-btns">${l.given ? '' : giveSel(l)}<button class="btn small" data-lt="reveal">${l.shown ? 'Change what they were told' : 'Reveal value'}</button><button class="btn small ghost" data-lt="edit">Edit</button><button class="icon-btn" data-lt="del" aria-label="Remove">✕</button></div></li>`;
+  };
+  return `<div class="view-head"><h1>Loot</h1><button class="btn" data-lt="coins">+ Coins</button><button class="btn primary" data-lt="add">+ Loot</button></div>
+    <p class="muted shared-note">Everything the party picks up, except magic items (those go through the Magic Items app). Players never see a true value; Reveal value tells them an appraisal, which you can make lower than the truth.</p>
+    <div class="row loot-filter"><label class="small">Where <select data-lootf="place"><option value="">Everywhere</option>${places.map(p => `<option ${p === f ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></label>
+      <label class="small">Show <select data-lootf="show">${[['open', 'Not given out'], ['given', 'Given out'], ['all', 'All']].map(([k, n]) => `<option value="${k}" ${k === show ? 'selected' : ''}>${n}</option>`).join('')}</select></label></div>
+    <ul class="loot-list">${list.map(card).join('') || `<li class="muted">${all.length ? 'Nothing here with these filters.' : 'No loot yet. Add what the party might find, and tag where it is.'}</li>`}</ul>`;
+}
+
+// Add or edit a find. A name on the Character Sheet's equipment list fills in its weight, value and section.
+async function lootForm(l) {
+  const eq = await loadEquip();
+  const dl = [...eq.values()].map(e => `<option value="${esc(e.name)}">`).join('');
+  const places = [...new Set([...liveLoot().map(x => x.place).filter(Boolean), ...liveLocations().map(x => x.name).filter(Boolean)])].sort();
+  const x = l || { sec: 'treasure', qty: 1 };
+  const d = document.createElement('dialog'); d.className = 'dlg-wrap loot-dlg';
+  d.innerHTML = `<form method="dialog" class="dlg"><h2>${l ? 'Edit loot' : 'Add loot'}</h2>
+    <label class="field"><span>Name (an equipment-list item fills in the rest)</span><input name="name" list="lootEq" value="${esc(x.name || '')}" required autocomplete="off"><datalist id="lootEq">${dl}</datalist></label>
+    <div class="row">
+      <label class="field"><span>How many</span><input name="qty" type="number" min="1" value="${esc(x.qty || 1)}" inputmode="numeric"></label>
+      <label class="field"><span>Weight each (lb)</span><input name="wt" type="number" min="0" step="0.01" value="${esc(x.wt ?? '')}" inputmode="decimal"></label>
+      <label class="field"><span>True value (only you)</span><input name="value" value="${esc(x.value || '')}" placeholder="250 gp"></label></div>
+    <div class="row">
+      <label class="field"><span>Goes in</span><select name="sec">${Object.entries(SEC_NAME).map(([k, n]) => `<option value="${k}" ${x.sec === k ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+      <label class="field"><span>Where it's found</span><input name="place" list="lootPlaces" value="${esc(x.place || '')}" placeholder="Dark Duchess wreck"><datalist id="lootPlaces">${places.map(p => `<option value="${esc(p)}">`).join('')}</datalist></label></div>
+    <label class="field"><span>Description (players see this)</span><textarea name="desc" rows="3" class="grow">${esc(x.desc || '')}</textarea></label>
+    <p class="small muted" data-eqnote>${x.eqId ? 'From the equipment list.' : ''}</p>
+    <div class="row end"><button class="btn ghost" value="cancel" formnovalidate>Cancel</button><button class="btn primary" value="ok">${l ? 'Save' : 'Add'}</button></div></form>`;
+  document.body.append(d);
+  let eqId = x.eqId || '';
+  const fm = d.querySelector('form');
+  fm.name.addEventListener('change', () => {
+    const e = eq.get(fm.name.value.trim().toLowerCase());
+    eqId = e?.id || '';
+    d.querySelector('[data-eqnote]').textContent = e ? `From the equipment list: ${SEC_NAME[eqSection(e)]}${e.cost ? `, worth ${e.cost}` : ''}.` : '';
+    if (e) { fm.wt.value = e.wt ?? ''; if (!fm.value.value) fm.value.value = e.cost || ''; fm.sec.value = eqSection(e); }
+    else if (!l) fm.sec.value = 'treasure';
+  });
+  d.addEventListener('close', async () => {
+    if (d.returnValue === 'ok' && fm.name.value.trim()) {
+      const r = l || { id: uid(), campaignId: state.campaignId, kind: 'item', createdAt: Date.now() };
+      Object.assign(r, { name: fm.name.value.trim().slice(0, 120), qty: Math.max(1, Number(fm.qty.value) || 1), wt: Number(fm.wt.value) || 0, value: fm.value.value.trim().slice(0, 40),
+        sec: fm.sec.value, place: fm.place.value.trim().slice(0, 80), desc: fm.desc.value.trim().slice(0, 2000), eqId });
+      if (!state.loot.includes(r)) state.loot.push(r);
+      await save('loot', r); render();
+    }
+    d.remove();
+  });
+  d.showModal();
+}
+async function coinsForm() {
+  const places = [...new Set([...liveLoot().map(x => x.place).filter(Boolean), ...liveLocations().map(x => x.name).filter(Boolean)])].sort();
+  const d = document.createElement('dialog'); d.className = 'dlg-wrap loot-dlg';
+  d.innerHTML = `<form method="dialog" class="dlg"><h2>Add coins</h2>
+    <div class="row">${COIN_KEYS.map(k => `<label class="field coinf"><span>${k}</span><input name="${k}" type="number" min="0" inputmode="numeric"></label>`).join('')}</div>
+    <label class="field"><span>Where it's found</span><input name="place" list="lootPlaces2"><datalist id="lootPlaces2">${places.map(p => `<option value="${esc(p)}">`).join('')}</datalist></label>
+    <div class="row end"><button class="btn ghost" value="cancel" formnovalidate>Cancel</button><button class="btn primary" value="ok">Add</button></div></form>`;
+  document.body.append(d);
+  const fm = d.querySelector('form');
+  d.addEventListener('close', async () => {
+    const coins = Object.fromEntries(COIN_KEYS.map(k => [k, Math.max(0, Math.floor(Number(fm[k].value) || 0))]).filter(([, v]) => v));
+    if (d.returnValue === 'ok' && Object.keys(coins).length) {
+      const r = { id: uid(), campaignId: state.campaignId, kind: 'coins', coins, place: fm.place.value.trim().slice(0, 80), createdAt: Date.now() };
+      state.loot.push(r); await save('loot', r); render();
+    }
+    d.remove();
+  });
+  d.showModal();
+}
+// Split coins evenly: each kind of coin divided, the leftovers going one at a time down the party
+function splitCoins(coins, ids) {
+  const shares = Object.fromEntries(ids.map(id => [id, {}]));
+  for (const k of COIN_KEYS) {
+    const n = Number(coins[k]) || 0; if (!n) continue;
+    const each = Math.floor(n / ids.length); let left = n - each * ids.length;
+    ids.forEach(id => { const v = each + (left > 0 ? 1 : 0); if (left > 0) left--; if (v) shares[id][k] = v; });
+  }
+  return shares;
+}
+$('#view').addEventListener('click', async e => {
+  const b = e.target.closest('[data-lt]'); if (!b) return;
+  const l = state.loot.find(x => x.id === b.closest('[data-loot]')?.dataset.loot);
+  switch (b.dataset.lt) {
+    case 'add': return lootForm(null);
+    case 'coins': return coinsForm();
+    case 'edit': return l && lootForm(l);
+    case 'del':
+      if (!l || !(await confirmBox(`Remove ${l.kind === 'coins' ? coinText(l.coins) : l.name}?`, l.given ? "It stays on the sheet it went to. This only takes it off your list." : 'It comes off your Loot list.', 'Remove'))) return;
+      l.deleted = true; await save('loot', l); render(); return;
+    case 'reveal': {
+      if (!l) return;
+      const v = await promptBox(`What were they told ${l.name} is worth?`, l.shown || l.value || '', l.given ? 'It shows on their sheet as Appraised. Leave it empty to hide it again.' : 'It shows on their sheet as Appraised once you give it to someone. Leave it empty to keep it hidden.');
+      if (v == null) return;
+      l.shown = v.trim().slice(0, 40); l.shownAt = Date.now(); await save('loot', l); render();
+      toast(l.shown ? `They'll see ${l.name}: Appraised ${l.shown}.` : `${l.name}'s value is hidden again.`); return;
+    }
+  }
+});
+$('#view').addEventListener('change', async e => {
+  const t = e.target;
+  if (t.dataset.lootf) { state[t.dataset.lootf === 'place' ? 'lootPlace' : 'lootShow'] = t.value; render(); return; }
+  if (!t.dataset.lootto || !t.value) return;
+  const l = state.loot.find(x => x.id === t.dataset.lootto); if (!l || l.given) return;
+  const pcs = livePcs().filter(p => p.active !== false);
+  if (t.value === 'split') {
+    if (!(await confirmBox(`Split ${coinText(l.coins)} evenly?`, `Between ${pcs.map(p => p.name).join(', ')}. It goes straight into their purses.`, 'Split'))) { render(); return; }
+    l.given = { to: 'split', at: Date.now(), shares: splitCoins(l.coins, pcs.map(p => p.id)) };
+  } else {
+    const p = pcs.find(x => x.id === t.value); if (!p) return;
+    l.given = { to: p.id, at: Date.now(), ...(l.kind === 'coins' ? { shares: { [p.id]: { ...l.coins } } } : {}) };
+  }
+  await save('loot', l); render();
+  toast(l.kind === 'coins' ? 'Coins sent to their purses.' : `${l.name} is on ${state.pcs.find(p => p.id === l.given.to)?.name || 'their'}'s sheet${l.shown ? '' : ', value hidden'}.`);
+});

@@ -586,3 +586,16 @@ body.has-slidebar { padding-bottom: 110px; }
 .phase-name { padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--ink); }
 .phase-fold { font-size: 18px; width: 32px; min-width: 32px; }
 .phase-sum { margin-left: auto; }
+
+/* Loot */
+.loot-filter { gap: 12px; flex-wrap: wrap; margin: 6px 0 10px; }
+.loot-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.loot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface-2); }
+.loot-main { flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; }
+.loot .row-btns { flex-wrap: wrap; }
+.sm-select { width: auto; max-width: 100%; }
+.loot-dlg .field { display: block; flex: 1 1 140px; margin: 8px 0; }
+.loot-dlg .field > span { display: block; font-size: 13px; color: var(--muted); margin-bottom: 3px; }
+.loot-dlg .field input, .loot-dlg .field select, .loot-dlg .field textarea { width: 100%; box-sizing: border-box; }
+.loot-dlg .row { gap: 10px; flex-wrap: wrap; }
+.loot-dlg .coinf { flex: 1 1 64px; }
