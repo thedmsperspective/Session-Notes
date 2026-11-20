@@ -1857,10 +1857,17 @@ $('#clockSetBtn').addEventListener('click', () => { const [h, m] = ($('#clockInp
 document.querySelector('.clock-quick').addEventListener('click', e => { const b = e.target.closest('[data-tod]'); if (b) setClockTo(+b.dataset.tod); });
 $('#timeSetBtn').addEventListener('click', async () => { await setTime(readPicker('tp')); toast('In-game date set.'); });
 
+// Campaigns belong to a table: this table's, plus any not tied to a table yet (picking one ties it here)
+function atThisTable(c) {
+  const { core } = suiteNow();
+  const tid = core?.currentTable?.()?.id; if (!tid || core?.tableRole?.() !== 'dm') return true;
+  const k = core.cachedSuite?.().campaigns.find(x => x.id === c.id);
+  return !k?.tableId || k.tableId === tid;
+}
 // Settings
 function openSettings() {
   const sel = $('#campaignSel');
-  const live = state.campaigns.filter(c => !c.deleted);
+  const live = state.campaigns.filter(c => !c.deleted && (atThisTable(c) || c.id === state.campaignId));
   const dupName = c => live.filter(x => x.name === c.name).length > 1;
   sel.innerHTML = live.map(c => { const n = state.sessions.filter(x => x.campaignId === c.id && !x.deleted).length;
     return `<option value="${c.id}" ${c.id === state.campaignId ? 'selected' : ''}>${esc(c.name)}${dupName(c) ? ` (${n} session${n === 1 ? '' : 's'}, last changed ${esc(lastEdited(c))})` : ''}</option>`; }).join('');
@@ -2045,7 +2052,7 @@ function campaignSummary(c) {
   return `${n('sessions')} session${n('sessions') === 1 ? '' : 's'} (${withNotes} with notes), ${n('pcs')} characters, ${n('training')} training, in-game date ${C.fmtShort(c.current)}, last changed ${lastEdited(c)}`;
 }
 function renderCombine() {
-  const others = state.campaigns.filter(c => !c.deleted && c.id !== state.campaignId);
+  const others = state.campaigns.filter(c => !c.deleted && c.id !== state.campaignId && atThisTable(c));
   const box = $('#combineBox');
   if (!others.length) { box.innerHTML = ''; return; }
   box.innerHTML = `<p class="small"><b>This campaign:</b> ${esc(campaign().name)} · ${esc(campaignSummary(campaign()))}</p>
@@ -2106,7 +2113,7 @@ $('#deleteCampaignBtn').addEventListener('click', async () => {
     for (const r of state[st].filter(x => x.campaignId === c.id && !x.deleted)) { r.deleted = true; await save(st, r); }
   }
   c.deleted = true; await save('campaigns', c);
-  let next = state.campaigns.find(x => !x.deleted);
+  let next = state.campaigns.find(x => !x.deleted && atThisTable(x));
   if (!next) { next = { id: uid(), name: 'New campaign', current: c.current, createdAt: Date.now(), locationId: null, calendar: c.calendar }; await save('campaigns', next); }
   state.campaignId = next.id; await db.setMeta('campaignId', next.id);
   campaignChosen(next.id);
