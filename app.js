@@ -2867,6 +2867,9 @@ const SEC_NAME = { armor: 'Armor', weapons: 'Weapons', treasure: 'Treasure', gea
 const natCmp = (a, b) => String(a || '').localeCompare(String(b || ''), undefined, { numeric: true, sensitivity: 'base' });
 // a new find starts in the chapter you're filtering to, else the one you added to last
 const lastChapter = () => (state.lootChapter && state.lootChapter !== '-' ? state.lootChapter : [...liveLoot()].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).find(l => l.chapter)?.chapter || '');
+// folded chapters, remembered on this device for each campaign
+const lootFoldKey = () => `sn-loot-folded-${state.campaignId}`;
+function lootFolded() { try { return new Set(JSON.parse(localStorage.getItem(lootFoldKey()) || '[]')); } catch { return new Set(); } }
 const lootChapters = () => [...new Set(liveLoot().map(l => l.chapter).filter(Boolean))].sort(natCmp);
 function viewLoot() {
   const all = liveLoot(), chapters = lootChapters();
@@ -2876,11 +2879,18 @@ function viewLoot() {
   const f = places.includes(state.lootPlace) ? state.lootPlace : '';
   const list = inCh.filter(l => (!f || l.place === f) && (show === 'all' || (show === 'open' ? !l.given : !!l.given)))
     .sort((a, b) => (!a.chapter - !b.chapter) || natCmp(a.chapter, b.chapter) || (!a.place - !b.place) || natCmp(a.place, b.place) || (a.createdAt || 0) - (b.createdAt || 0));
-  // headings: each chapter, and each place within it
+  // headings: each chapter (tap to fold it up), and each place within it
+  const shut = lootFolded();
+  const count = c => list.filter(l => (l.chapter || '') === c).length;
   let lastCh = null, lastPl = null;
   const heads = l => {
     let h = '';
-    if ((l.chapter || '') !== lastCh) { lastCh = l.chapter || ''; lastPl = null; if (chapters.length) h += `<li class="loot-head ch">${esc(lastCh || 'No chapter')}</li>`; }
+    if ((l.chapter || '') !== lastCh) {
+      lastCh = l.chapter || ''; lastPl = null;
+      if (chapters.length) { const sh = shut.has(lastCh), n = count(lastCh);
+        h += `<li class="loot-head ch"><button type="button" class="loot-fold" data-lt="fold" data-ch="${esc(lastCh)}" aria-expanded="${!sh}"><span class="chev">${sh ? '▸' : '▾'}</span>${esc(lastCh || 'No chapter')}<span class="muted small"> · ${n} find${n === 1 ? '' : 's'}</span></button></li>`; }
+    }
+    if (chapters.length && shut.has(lastCh)) return h;
     if ((l.place || '') !== lastPl) { lastPl = l.place || ''; h += `<li class="loot-head pl">${esc(lastPl || 'No location')}</li>`; }
     return h;
   };
@@ -2902,7 +2912,7 @@ function viewLoot() {
     <div class="row loot-filter">${chapters.length ? `<label class="small">Chapter <select data-lootf="chapter"><option value="">Every chapter</option>${chapters.map(c => `<option ${c === ch ? 'selected' : ''}>${esc(c)}</option>`).join('')}${all.some(l => !l.chapter) ? `<option value="-" ${ch === '-' ? 'selected' : ''}>No chapter</option>` : ''}</select></label>` : ''}
       <label class="small">Where <select data-lootf="place"><option value="">Everywhere</option>${places.map(p => `<option ${p === f ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></label>
       <label class="small">Show <select data-lootf="show">${[['open', 'Not given out'], ['given', 'Given out'], ['all', 'All']].map(([k, n]) => `<option value="${k}" ${k === show ? 'selected' : ''}>${n}</option>`).join('')}</select></label></div>
-    <ul class="loot-list">${list.map(l => heads(l) + card(l)).join('') || `<li class="muted">${all.length ? 'Nothing here with these filters.' : 'No loot yet. Add what the party might find, and tag where it is.'}</li>`}</ul>`;
+    <ul class="loot-list">${list.map(l => { const h = heads(l); return h + (chapters.length && shut.has(l.chapter || '') ? '' : card(l)); }).join('') || `<li class="muted">${all.length ? 'Nothing here with these filters.' : 'No loot yet. Add what the party might find, and tag where it is.'}</li>`}</ul>`;
 }
 
 // Add or edit a find. A name on the Character Sheet's equipment list fills in its weight, value and section.
@@ -2988,6 +2998,7 @@ $('#view').addEventListener('click', async e => {
     case 'add': return lootForm(null);
     case 'coins': return coinsForm();
     case 'editcoins': return l && coinsForm(l);
+    case 'fold': { const f = lootFolded(), c = b.dataset.ch || ''; if (f.has(c)) f.delete(c); else f.add(c); try { localStorage.setItem(lootFoldKey(), JSON.stringify([...f])); } catch { /* it just won't be remembered */ } render(); return; }
     case 'edit': return l && lootForm(l);
     case 'del':
       if (!l || !(await confirmBox(`Remove ${l.kind === 'coins' ? coinText(l.coins) : l.name}?`, l.given ? "It stays on the sheet it went to. This only takes it off your list." : 'It comes off your Loot list.', 'Remove'))) return;

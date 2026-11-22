@@ -604,3 +604,7 @@ body.has-slidebar { padding-bottom: 110px; }
 .loot-list .loot-head.ch{font-size:1.15em;border-bottom:1px solid var(--line, rgba(127,127,127,.35));padding-bottom:4px;margin-top:18px}
 .loot-list .loot-head.pl{font-size:.92em;opacity:.8;margin-top:8px}
 .loot-list .loot-head:first-child{margin-top:4px}
+
+.loot-list .loot-fold{all:unset;cursor:pointer;display:flex;align-items:baseline;gap:6px;width:100%}
+.loot-list .loot-fold .chev{display:inline-block;width:1em;opacity:.7}
+.loot-list .loot-fold:focus-visible{outline:2px solid currentColor;outline-offset:2px;border-radius:4px}
