@@ -2863,28 +2863,46 @@ function eqSection(e) {
 }
 const SEC_NAME = { armor: 'Armor', weapons: 'Weapons', treasure: 'Treasure', gear: 'Gear', consumables: 'Consumables' };
 
+// Chapters and places sort the way people count: "Chapter 2" before "Chapter 10"
+const natCmp = (a, b) => String(a || '').localeCompare(String(b || ''), undefined, { numeric: true, sensitivity: 'base' });
+// a new find starts in the chapter you're filtering to, else the one you added to last
+const lastChapter = () => (state.lootChapter && state.lootChapter !== '-' ? state.lootChapter : [...liveLoot()].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).find(l => l.chapter)?.chapter || '');
+const lootChapters = () => [...new Set(liveLoot().map(l => l.chapter).filter(Boolean))].sort(natCmp);
 function viewLoot() {
-  const all = liveLoot(), places = [...new Set(all.map(l => l.place).filter(Boolean))].sort();
-  const f = state.lootPlace || '', show = state.lootShow || 'open';
-  const list = all.filter(l => (!f || l.place === f) && (show === 'all' || (show === 'open' ? !l.given : !!l.given)));
+  const all = liveLoot(), chapters = lootChapters();
+  const ch = state.lootChapter || '', show = state.lootShow || 'open';
+  const inCh = all.filter(l => !ch || (ch === '-' ? !l.chapter : l.chapter === ch));
+  const places = [...new Set(inCh.map(l => l.place).filter(Boolean))].sort(natCmp);
+  const f = places.includes(state.lootPlace) ? state.lootPlace : '';
+  const list = inCh.filter(l => (!f || l.place === f) && (show === 'all' || (show === 'open' ? !l.given : !!l.given)))
+    .sort((a, b) => (!a.chapter - !b.chapter) || natCmp(a.chapter, b.chapter) || (!a.place - !b.place) || natCmp(a.place, b.place) || (a.createdAt || 0) - (b.createdAt || 0));
+  // headings: each chapter, and each place within it
+  let lastCh = null, lastPl = null;
+  const heads = l => {
+    let h = '';
+    if ((l.chapter || '') !== lastCh) { lastCh = l.chapter || ''; lastPl = null; if (chapters.length) h += `<li class="loot-head ch">${esc(lastCh || 'No chapter')}</li>`; }
+    if ((l.place || '') !== lastPl) { lastPl = l.place || ''; h += `<li class="loot-head pl">${esc(lastPl || 'No location')}</li>`; }
+    return h;
+  };
   const pcs = livePcs().filter(p => p.active !== false);
   const who = id => state.pcs.find(p => p.id === id)?.name || 'someone';
   const giveSel = l => `<select class="sm-select" data-lootto="${l.id}" aria-label="Give to"><option value="">Give to…</option>${pcs.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}${l.kind === 'coins' && pcs.length > 1 ? '<option value="split">Split evenly</option>' : ''}</select>`;
   const card = l => {
     const given = l.given ? `<span class="pill arc-done">${l.kind === 'coins' && l.given.to === 'split' ? 'Split evenly' : `Given to ${esc(who(l.given.to))}`} · ${new Date(l.given.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>` : '';
-    if (l.kind === 'coins') return `<li class="loot coins" data-loot="${l.id}"><div class="loot-main"><b>🪙 ${esc(coinText(l.coins))}</b>${l.place ? ` <span class="muted small">· ${esc(l.place)}</span>` : ''} ${given}</div>
-      <div class="row-btns">${l.given ? '' : giveSel(l)}<button class="icon-btn" data-lt="del" aria-label="Remove">✕</button></div></li>`;
+    if (l.kind === 'coins') return `<li class="loot coins" data-loot="${l.id}"><div class="loot-main"><b>🪙 ${esc(coinText(l.coins))}</b> ${given}</div>
+      <div class="row-btns">${l.given ? '' : giveSel(l)}<button class="btn small ghost" data-lt="editcoins">Edit</button><button class="icon-btn" data-lt="del" aria-label="Remove">✕</button></div></li>`;
     return `<li class="loot" data-loot="${l.id}"><div class="loot-main"><b>${esc(l.name || 'Something')}</b>${Number(l.qty) > 1 ? ` ×${Number(l.qty)}` : ''}
-        <span class="muted small">· ${SEC_NAME[l.sec] || 'Treasure'}${l.wt ? ` · ${l.wt} lb` : ''}${l.place ? ` · ${esc(l.place)}` : ''}${l.eqId ? ' · from the equipment list' : ''}</span> ${given}
+        <span class="muted small">· ${SEC_NAME[l.sec] || 'Treasure'}${l.wt ? ` · ${l.wt} lb` : ''}${l.eqId ? ' · from the equipment list' : ''}</span> ${given}
         <div class="small">True value: <b>${esc(l.value || 'not set')}</b>${l.shown ? ` · They were told <b>${esc(l.shown)}</b>` : ' · Value hidden from them'}</div>
         ${l.desc ? `<div class="small muted">${esc(l.desc)}</div>` : ''}</div>
       <div class="row-btns">${l.given ? '' : giveSel(l)}<button class="btn small" data-lt="reveal">${l.shown ? 'Change what they were told' : 'Reveal value'}</button><button class="btn small ghost" data-lt="edit">Edit</button><button class="icon-btn" data-lt="del" aria-label="Remove">✕</button></div></li>`;
   };
   return `<div class="view-head"><h1>Loot</h1><button class="btn" data-lt="coins">+ Coins</button><button class="btn primary" data-lt="add">+ Loot</button></div>
     <p class="muted shared-note">Everything the party picks up, except magic items (those go through the Magic Items app). Players never see a true value; Reveal value tells them an appraisal, which you can make lower than the truth.</p>
-    <div class="row loot-filter"><label class="small">Where <select data-lootf="place"><option value="">Everywhere</option>${places.map(p => `<option ${p === f ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></label>
+    <div class="row loot-filter">${chapters.length ? `<label class="small">Chapter <select data-lootf="chapter"><option value="">Every chapter</option>${chapters.map(c => `<option ${c === ch ? 'selected' : ''}>${esc(c)}</option>`).join('')}${all.some(l => !l.chapter) ? `<option value="-" ${ch === '-' ? 'selected' : ''}>No chapter</option>` : ''}</select></label>` : ''}
+      <label class="small">Where <select data-lootf="place"><option value="">Everywhere</option>${places.map(p => `<option ${p === f ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></label>
       <label class="small">Show <select data-lootf="show">${[['open', 'Not given out'], ['given', 'Given out'], ['all', 'All']].map(([k, n]) => `<option value="${k}" ${k === show ? 'selected' : ''}>${n}</option>`).join('')}</select></label></div>
-    <ul class="loot-list">${list.map(card).join('') || `<li class="muted">${all.length ? 'Nothing here with these filters.' : 'No loot yet. Add what the party might find, and tag where it is.'}</li>`}</ul>`;
+    <ul class="loot-list">${list.map(l => heads(l) + card(l)).join('') || `<li class="muted">${all.length ? 'Nothing here with these filters.' : 'No loot yet. Add what the party might find, and tag where it is.'}</li>`}</ul>`;
 }
 
 // Add or edit a find. A name on the Character Sheet's equipment list fills in its weight, value and section.
@@ -2902,6 +2920,7 @@ async function lootForm(l) {
       <label class="field"><span>True value (only you)</span><input name="value" value="${esc(x.value || '')}" placeholder="250 gp"></label></div>
     <div class="row">
       <label class="field"><span>Goes in</span><select name="sec">${Object.entries(SEC_NAME).map(([k, n]) => `<option value="${k}" ${x.sec === k ? 'selected' : ''}>${n}</option>`).join('')}</select></label>
+      <label class="field"><span>Chapter</span><input name="chapter" list="lootChs" value="${esc(x.chapter ?? lastChapter())}" placeholder="Chapter 2"><datalist id="lootChs">${lootChapters().map(c => `<option value="${esc(c)}">`).join('')}</datalist></label>
       <label class="field"><span>Where it's found</span><input name="place" list="lootPlaces" value="${esc(x.place || '')}" placeholder="Dark Duchess wreck"><datalist id="lootPlaces">${places.map(p => `<option value="${esc(p)}">`).join('')}</datalist></label></div>
     <label class="field"><span>Description (players see this)</span><textarea name="desc" rows="3" class="grow">${esc(x.desc || '')}</textarea></label>
     <p class="small muted" data-eqnote>${x.eqId ? 'From the equipment list.' : ''}</p>
@@ -2920,7 +2939,7 @@ async function lootForm(l) {
     if (d.returnValue === 'ok' && fm.name.value.trim()) {
       const r = l || { id: uid(), campaignId: state.campaignId, kind: 'item', createdAt: Date.now() };
       Object.assign(r, { name: fm.name.value.trim().slice(0, 120), qty: Math.max(1, Number(fm.qty.value) || 1), wt: Number(fm.wt.value) || 0, value: fm.value.value.trim().slice(0, 40),
-        sec: fm.sec.value, place: fm.place.value.trim().slice(0, 80), desc: fm.desc.value.trim().slice(0, 2000), eqId });
+        sec: fm.sec.value, chapter: fm.chapter.value.trim().slice(0, 60), place: fm.place.value.trim().slice(0, 80), desc: fm.desc.value.trim().slice(0, 2000), eqId });
       if (!state.loot.includes(r)) state.loot.push(r);
       await save('loot', r); render();
     }
@@ -2928,20 +2947,25 @@ async function lootForm(l) {
   });
   d.showModal();
 }
-async function coinsForm() {
+async function coinsForm(l = null) {
   const places = [...new Set([...liveLoot().map(x => x.place).filter(Boolean), ...liveLocations().map(x => x.name).filter(Boolean)])].sort();
   const d = document.createElement('dialog'); d.className = 'dlg-wrap loot-dlg';
-  d.innerHTML = `<form method="dialog" class="dlg"><h2>Add coins</h2>
-    <div class="row">${COIN_KEYS.map(k => `<label class="field coinf"><span>${k}</span><input name="${k}" type="number" min="0" inputmode="numeric"></label>`).join('')}</div>
-    <label class="field"><span>Where it's found</span><input name="place" list="lootPlaces2"><datalist id="lootPlaces2">${places.map(p => `<option value="${esc(p)}">`).join('')}</datalist></label>
-    <div class="row end"><button class="btn ghost" value="cancel" formnovalidate>Cancel</button><button class="btn primary" value="ok">Add</button></div></form>`;
+  d.innerHTML = `<form method="dialog" class="dlg"><h2>${l ? 'Edit coins' : 'Add coins'}</h2>
+    <div class="row">${COIN_KEYS.map(k => `<label class="field coinf"><span>${k}</span><input name="${k}" type="number" min="0" inputmode="numeric" value="${esc(l?.coins?.[k] || '')}"></label>`).join('')}</div>
+    <div class="row">
+      <label class="field"><span>Chapter</span><input name="chapter" list="lootChs2" value="${esc(l ? l.chapter || '' : lastChapter())}" placeholder="Chapter 2"><datalist id="lootChs2">${lootChapters().map(c => `<option value="${esc(c)}">`).join('')}</datalist></label>
+      <label class="field"><span>Where it's found</span><input name="place" list="lootPlaces2" value="${esc(l?.place || '')}"><datalist id="lootPlaces2">${places.map(p => `<option value="${esc(p)}">`).join('')}</datalist></label></div>
+    <div class="row end"><button class="btn ghost" value="cancel" formnovalidate>Cancel</button><button class="btn primary" value="ok">${l ? 'Save' : 'Add'}</button></div></form>`;
   document.body.append(d);
   const fm = d.querySelector('form');
   d.addEventListener('close', async () => {
     const coins = Object.fromEntries(COIN_KEYS.map(k => [k, Math.max(0, Math.floor(Number(fm[k].value) || 0))]).filter(([, v]) => v));
     if (d.returnValue === 'ok' && Object.keys(coins).length) {
-      const r = { id: uid(), campaignId: state.campaignId, kind: 'coins', coins, place: fm.place.value.trim().slice(0, 80), createdAt: Date.now() };
-      state.loot.push(r); await save('loot', r); render();
+      const r = l || { id: uid(), campaignId: state.campaignId, kind: 'coins', createdAt: Date.now() };
+      // coins already given out keep their amount (they're in the purses); only where and when they came from change
+      Object.assign(r, { ...(r.given ? {} : { coins }), chapter: fm.chapter.value.trim().slice(0, 60), place: fm.place.value.trim().slice(0, 80) });
+      if (!state.loot.includes(r)) state.loot.push(r);
+      await save('loot', r); render();
     }
     d.remove();
   });
@@ -2963,6 +2987,7 @@ $('#view').addEventListener('click', async e => {
   switch (b.dataset.lt) {
     case 'add': return lootForm(null);
     case 'coins': return coinsForm();
+    case 'editcoins': return l && coinsForm(l);
     case 'edit': return l && lootForm(l);
     case 'del':
       if (!l || !(await confirmBox(`Remove ${l.kind === 'coins' ? coinText(l.coins) : l.name}?`, l.given ? "It stays on the sheet it went to. This only takes it off your list." : 'It comes off your Loot list.', 'Remove'))) return;
@@ -2978,7 +3003,7 @@ $('#view').addEventListener('click', async e => {
 });
 $('#view').addEventListener('change', async e => {
   const t = e.target;
-  if (t.dataset.lootf) { state[t.dataset.lootf === 'place' ? 'lootPlace' : 'lootShow'] = t.value; render(); return; }
+  if (t.dataset.lootf) { state[{ place: 'lootPlace', chapter: 'lootChapter' }[t.dataset.lootf] || 'lootShow'] = t.value; if (t.dataset.lootf === 'chapter') state.lootPlace = ''; render(); return; }
   if (!t.dataset.lootto || !t.value) return;
   const l = state.loot.find(x => x.id === t.dataset.lootto); if (!l || l.given) return;
   const pcs = livePcs().filter(p => p.active !== false);

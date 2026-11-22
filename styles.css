@@ -599,3 +599,8 @@ body.has-slidebar { padding-bottom: 110px; }
 .loot-dlg .field input, .loot-dlg .field select, .loot-dlg .field textarea { width: 100%; box-sizing: border-box; }
 .loot-dlg .row { gap: 10px; flex-wrap: wrap; }
 .loot-dlg .coinf { flex: 1 1 64px; }
+
+.loot-list .loot-head{list-style:none;font-weight:700;margin:14px 0 4px;padding:0;border:0;background:none}
+.loot-list .loot-head.ch{font-size:1.15em;border-bottom:1px solid var(--line, rgba(127,127,127,.35));padding-bottom:4px;margin-top:18px}
+.loot-list .loot-head.pl{font-size:.92em;opacity:.8;margin-top:8px}
+.loot-list .loot-head:first-child{margin-top:4px}
